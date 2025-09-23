@@ -1,0 +1,99 @@
+# ===================================================================
+# VisStream Project .gitignore
+# ===================================================================
+
+# -------------------------------------------------------------------
+# 1. Build Artifacts
+#    This is the most important section for our out-of-source builds.
+# -------------------------------------------------------------------
+# Ignore the entire build directory.
+/build/
+
+# Ignore artifacts from accidental in-source builds.
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+compile_commands.json
+
+# C++ specific artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.exe
+*.d
+
+# -------------------------------------------------------------------
+# 2. Generated Code
+#    We treat the .proto file as the single source of truth.
+#    All generated files should be ignored and recreated during build.
+# -------------------------------------------------------------------
+# Protobuf generated files (C++)
+# Although these are in /build/, adding explicit rules is good practice.
+*.pb.h
+*.pb.cc
+
+# Protobuf generated files (JavaScript)
+# This is a specific path we need to ignore.
+/web_client/js/lib/protocol/*_pb.js
+
+# -------------------------------------------------------------------
+# 3. Python Specific
+#    For Python examples and the pybind11 wrapper build.
+# -------------------------------------------------------------------
+# Caches
+__pycache__/
+*.pyc
+*.pyo
+
+# Compiled Python modules (often end up in the build directory too)
+*.pyd
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# -------------------------------------------------------------------
+# 4. IDE and Editor Directories
+#    User-specific settings that shouldn't be in version control.
+# -------------------------------------------------------------------
+# Visual Studio Code
+.vscode/
+# Note: You can selectively un-ignore files like .vscode/settings.json
+# if you want to share workspace settings with the team, e.g.:
+# !.vscode/settings.json
+
+# Visual Studio
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# CLion
+.idea/
+
+# -------------------------------------------------------------------
+# 5. OS Generated Files
+# -------------------------------------------------------------------
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# -------------------------------------------------------------------
+# 6. Log and Temporary Files
+# -------------------------------------------------------------------
+*.log
+*.tmp
+*.temp

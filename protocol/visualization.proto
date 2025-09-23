@@ -1,0 +1,77 @@
+syntax = "proto3";
+package visualization;
+
+// 顶层消息，用于封装一次完整的场景更新 ​
+message SceneUpdate {
+  string window_id = 1;          // 目标窗口的唯一标识符 ​
+  repeated Command commands = 2; // 本次更新包含的命令列表 ​
+}
+
+// 单个命令的封装 ​
+message Command {
+  oneof command_type {
+    AddObject add_object = 1;
+    UpdateObjectProperties update_object_properties = 2;
+    UpdateObjectGeometry update_object_geometry = 3;
+    DeleteObject delete_object = 4;
+    SetCamera set_camera = 5;
+
+    //... 其他场景级命令，如图名、图例等 ​
+  }
+}
+
+// --- 几何对象定义 --- ​
+
+// 添加一个新可视化对象 ​
+message AddObject {
+  string id = 1; // 对象的唯一标识符 ​
+  oneof geometry_data {
+    Points points = 2;
+    LineStrip line_strip = 3;
+    Surface surface = 4;
+    //... 其他几何类型，如球体、立方体等 ​
+  }
+  Material material = 10;
+}
+
+// 删除一个对象 ​
+message DeleteObject { string id = 1; }
+
+// --- 几何数据结构 --- ​
+
+message Vec3 {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+
+message ColorRGBA {
+  float r = 1;
+  float g = 2;
+  float b = 3;
+  float a = 4;
+}
+
+message Points {
+  repeated float positions = 1; // [x1, y1, z1, x2, y2, z2,...] ​
+  repeated float colors = 2;
+  // [r1, g1, b1, a1, r2, g2, b2, a2,...] (可选) ​
+}
+
+message LineStrip {
+  repeated float positions = 1; // [x1, y1, z1, x2, y2, z2,...] ​
+  //... 其他属性 ​
+}
+
+message Surface {
+  repeated float vertices = 1;
+  repeated uint32 indices = 2;
+  repeated float normals = 3; // (可选) ​
+}
+
+// --- 材质定义 ---
+​message Material {
+  ColorRGBA color = 1;
+  float line_width = 2;
+  //... 其他材质属性，如透明度、边框颜色等 ​
+}

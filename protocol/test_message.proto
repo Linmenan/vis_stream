@@ -1,0 +1,6 @@
+// vis_stream/protocol/test_message.proto
+syntax = "proto3";
+
+package vis_stream;
+
+message TestMessage { string content = 1; }
