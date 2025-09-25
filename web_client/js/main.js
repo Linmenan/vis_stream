@@ -34,14 +34,14 @@ class AppManager {
                 <div id="figure-container" class="figure-container">
                     <h2 id="figure-title" class="figure-title">2D Plot</h2>
                     <div class="plot-area">
-                        <div id="y-axis-label" class="y-axis-label">Y-Axis</div>
+                        <div id="y-axis-container" class="axis-container y-axis"></div>
                         <div id="canvas-container" class="canvas-container">
                             <div id="crosshair-x" class="crosshair"></div>
                             <div id="crosshair-y" class="crosshair"></div>
                             <div id="coord-tooltip" class="coord-tooltip"></div>
                         </div>
+                        <div id="x-axis-container" class="axis-container x-axis"></div>
                         <div id="legend-container" class="legend-container"></div>
-                        <div id="x-axis-label" class="x-axis-label">X-Axis</div>
                     </div>
                     <div id="toolbar" class="toolbar">
                         <label class="toolbar-label">
@@ -181,7 +181,127 @@ class Plotter3D extends BasePlotter {
         document.title = document.title + " (连接已断开)";
     }
 }
+/**
+ * 一个辅助类，用于创建和管理一个动态的、自适应的2D网格和坐标轴刻度。
+ * 它会根据摄像机的视野动态调整网格密度和刻度标签。
+ */
+class DynamicGrid {
+    constructor(scene, camera, canvasContainer, xAxisContainer, yAxisContainer) {
+        this.scene = scene;
+        this.camera = camera;
+        this.canvasContainer = canvasContainer;
+        this.xAxisContainer = xAxisContainer; // 用于放置X轴刻度的DOM元素
+        this.yAxisContainer = yAxisContainer; // 用于放置Y轴刻度的DOM元素
 
+        // 使用LineSegments来高效绘制网格线
+        const material = new THREE.LineBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.5 });
+        const geometry = new THREE.BufferGeometry();
+        this.gridLines = new THREE.LineSegments(geometry, material);
+        this.gridLines.frustumCulled = false; // 确保网格不会被意外裁剪
+        this.scene.add(this.gridLines);
+
+        // 用于管理刻度标签的DOM元素
+        this.xLabels = [];
+        this.yLabels = [];
+    }
+
+    /**
+     * 计算一个合适的、易于阅读的网格间距。
+     * 例如，返回 0.1, 0.5, 1, 5, 10 等。
+     * @param {number} range 视野范围的宽度或高度
+     */
+    calculateNiceInterval(range) {
+        const exponent = Math.floor(Math.log10(range));
+        const powerOfTen = Math.pow(10, exponent);
+        const relativeRange = range / powerOfTen; // 范围在 1 到 10 之间
+
+        if (relativeRange < 2) return powerOfTen * 0.2;
+        if (relativeRange < 5) return powerOfTen * 0.5;
+        return powerOfTen * 1;
+    }
+
+    /**
+     * 核心更新函数，在每一帧被调用。
+     */
+    update() {
+        const viewWidth = this.camera.right - this.camera.left;
+        const viewHeight = this.camera.top - this.camera.bottom;
+
+        const xInterval = this.calculateNiceInterval(viewWidth);
+        const yInterval = this.calculateNiceInterval(viewHeight);
+
+        const vertices = [];
+        const newXLabels = [];
+        const newYLabels = [];
+
+        // --- 更新垂直网格线和X轴刻度 ---
+        const xStart = Math.ceil(this.camera.left / xInterval) * xInterval;
+        for (let x = xStart; x <= this.camera.right; x += xInterval) {
+            vertices.push(x, this.camera.bottom, 0, x, this.camera.top, 0);
+            newXLabels.push({ value: x, position: this.worldToScreenX(x) });
+        }
+
+        // --- 更新水平网格线和Y轴刻度 ---
+        const yStart = Math.ceil(this.camera.bottom / yInterval) * yInterval;
+        for (let y = yStart; y <= this.camera.top; y += yInterval) {
+            vertices.push(this.camera.left, y, 0, this.camera.right, y, 0);
+            newYLabels.push({ value: y, position: this.worldToScreenY(y) });
+        }
+
+        // 更新网格几何体
+        this.gridLines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+        this.gridLines.geometry.attributes.position.needsUpdate = true;
+
+        // 更新DOM刻度标签
+        this.updateLabels(this.xAxisContainer, this.xLabels, newXLabels, 'x');
+        this.updateLabels(this.yAxisContainer, this.yLabels, newYLabels, 'y');
+    }
+
+    // --- 坐标转换辅助函数 ---
+    worldToScreenX(worldX) {
+        const rect = this.canvasContainer.getBoundingClientRect();
+        const viewWidth = this.camera.right - this.camera.left;
+        return ((worldX - this.camera.left) / viewWidth) * rect.width;
+    }
+
+    worldToScreenY(worldY) {
+        const rect = this.canvasContainer.getBoundingClientRect();
+        const viewHeight = this.camera.top - this.camera.bottom;
+        // Y轴是反向的
+        return (1 - (worldY - this.camera.bottom) / viewHeight) * rect.height;
+    }
+
+    // --- DOM操作辅助函数 ---
+    updateLabels(container, oldLabels, newLabelsData, axis) {
+        // 移除所有旧标签
+        oldLabels.forEach(label => label.remove());
+        oldLabels.length = 0;
+
+        // 创建新标签
+        container.innerHTML = ''; // 清空容器
+        newLabelsData.forEach(data => {
+            const label = document.createElement('div');
+            label.className = `axis-label-${axis}`;
+            label.innerText = data.value.toPrecision(3);
+            container.appendChild(label);
+            if (axis === 'x') {
+                label.style.left = `${data.position}px`;
+            } else {
+                label.style.top = `${data.position}px`;
+            }
+            oldLabels.push(label);
+        });
+    }
+
+    // 销毁时清理资源
+    destroy() {
+        this.scene.remove(this.gridLines);
+        this.gridLines.geometry.dispose();
+        this.gridLines.material.dispose();
+        this.updateLabels(this.xAxisContainer, this.xLabels, [], 'x');
+        this.updateLabels(this.yAxisContainer, this.yLabels, [], 'y');
+    }
+}
 /**
  * Manages the MATLAB-style 2D plot.
  */
@@ -194,8 +314,10 @@ class Plotter2D extends BasePlotter {
         // 查找所有UI元素
         this.titleEl = container.querySelector('#figure-title');
         this.canvasContainer = container.querySelector('#canvas-container');
-        this.xLabelEl = container.querySelector('#x-axis-label');
-        this.yLabelEl = container.querySelector('#y-axis-label');
+        // this.xLabelEl = container.querySelector('#x-axis-label');
+        // this.yLabelEl = container.querySelector('#y-axis-label');
+        this.xAxisContainer = container.querySelector('#x-axis-container');
+        this.yAxisContainer = container.querySelector('#y-axis-container');
         this.resetBtn = container.querySelector('#reset-view-btn');
         this.dynamicFitToggle = container.querySelector('#dynamic-fit-toggle');
         this.tooltipEl = container.querySelector('#coord-tooltip');
@@ -215,9 +337,10 @@ class Plotter2D extends BasePlotter {
         this.renderer.setSize(rect.width, rect.height);
         this.canvasContainer.appendChild(this.renderer.domElement);
 
-        this.gridHelper = new THREE.GridHelper(10, 10);
-        this.gridHelper.rotation.x = Math.PI / 2;
-        this.scene.add(this.gridHelper);
+        // this.gridHelper = new THREE.GridHelper(10, 10);
+        // this.gridHelper.rotation.x = Math.PI / 2;
+        // this.scene.add(this.gridHelper);
+        this.dynamicGrid = new DynamicGrid(this.scene, this.camera, this.canvasContainer, this.xAxisContainer, this.yAxisContainer);
 
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableRotate = false;
@@ -242,6 +365,7 @@ class Plotter2D extends BasePlotter {
         }
 
         this.controls.update();
+        this.dynamicGrid.update();
         this.renderer.render(this.scene, this.camera);
     }
 
@@ -376,12 +500,13 @@ class Plotter2D extends BasePlotter {
                 this.updateLegend(id_to_delete, null);
                 break;
             case proto.visualization.Command2D.CommandTypeCase.SET_GRID_VISIBLE:
-                this.gridHelper.visible = command.getSetGridVisible().getVisible();
+                // this.gridHelper.visible = command.getSetGridVisible().getVisible();
+                this.dynamicGrid.gridLines.visible = command.getSetGridVisible().getVisible();
                 break;
             case proto.visualization.Command2D.CommandTypeCase.SET_AXIS_PROPERTIES: {
                 const props = command.getSetAxisProperties();
-                this.xLabelEl.innerText = props.getXLabel();
-                this.yLabelEl.innerText = props.getYLabel();
+                // this.xLabelEl.innerText = props.getXLabel();
+                // this.yLabelEl.innerText = props.getYLabel();
                 this.dynamicFitToggle.checked = false;
                 this.isDynamicFitEnabled = false;
                 this.controls.enabled = true;
@@ -433,6 +558,12 @@ class Plotter2D extends BasePlotter {
             <span class="legend-color-swatch" style="background-color: #${colorHex};"></span>
             <span class="legend-label">${legendText}</span>
         `;
+    }
+    destroy() {
+        // Call the parent class's destroy method to clean up common resources.
+        super.destroy();
+        // Specifically destroy the resources created by our dynamic grid.
+        this.dynamicGrid.destroy();
     }
 }
 // [新增] 一个辅助对象，用于创建和缓存点的纹理
