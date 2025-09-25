@@ -96,6 +96,9 @@ class BasePlotter {
         // Clean up scene objects
         this.sceneObjects.forEach(obj => this.removeObject(obj.name));
     }
+    onDisconnect() {
+        console.log(`${this.type} Plotter is now in static mode (disconnected).`);
+    }
 }
 
 /**
@@ -171,6 +174,11 @@ class Plotter3D extends BasePlotter {
                 document.title = command.getSetTitle().getTitle();
                 break;
         }
+    }
+
+    onDisconnect() {
+        super.onDisconnect();
+        document.title = document.title + " (连接已断开)";
     }
 }
 
@@ -322,8 +330,20 @@ class Plotter2D extends BasePlotter {
     onWindowResize = () => {
         const rect = this.canvasContainer.getBoundingClientRect();
         if (rect.width === 0 || rect.height === 0) return;
+
+        // 保持当前的视图中心和视图高度，只根据新的宽高比调整视图宽度
+        const center = this.controls.target.clone();
+        const viewHeight = this.camera.top - this.camera.bottom;
+        const newAspect = rect.width / rect.height;
+        const newViewWidth = viewHeight * newAspect;
+
+        this.camera.left = center.x - newViewWidth / 2;
+        this.camera.right = center.x + newViewWidth / 2;
+        this.camera.top = center.y + viewHeight / 2;
+        this.camera.bottom = center.y - viewHeight / 2;
+
         this.renderer.setSize(rect.width, rect.height);
-        this.fitViewToData(); // 自适应视角逻辑会自动处理好宽高比
+        this.camera.updateProjectionMatrix();
     };
 
     dispatch(command) {
@@ -371,6 +391,15 @@ class Plotter2D extends BasePlotter {
                 this.titleEl.innerText = command.getSetTitle().getTitle();
                 break;
         }
+    }
+
+    onDisconnect() {
+        super.onDisconnect();
+        this.titleEl.innerText = this.titleEl.innerText + " (连接已断开)";
+        this.dynamicFitToggle.disabled = true;
+        // [修正] 关键修复：无论之前状态如何，断开连接时必须重新启用用户控制器
+        this.isDynamicFitEnabled = false;
+        this.controls.enabled = true;
     }
 }
 
@@ -570,7 +599,12 @@ class ConnectionManager {
         this.ws.onopen = () => console.log("WebSocket connected to ws://localhost:9002");
         this.ws.onmessage = this.handleMessage;
         this.ws.onerror = (err) => console.error("WebSocket Error:", err);
-        this.ws.onclose = () => console.log("WebSocket disconnected.");
+        this.ws.onclose = () => {
+            console.log("WebSocket disconnected.");
+            if (this.appManager.activePlotter) {
+                this.appManager.activePlotter.onDisconnect();
+            }
+        };
     }
 
     handleMessage = (event) => {
