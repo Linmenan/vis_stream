@@ -2,6 +2,12 @@
 cmake_minimum_required(VERSION 3.15)
 project(VisStream)
 
+set(CMAKE_BUILD_TYPE Debug)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+
 find_package(Protobuf REQUIRED)
 
 # 将第三方库的头文件目录加入包含路径
@@ -13,3 +19,4 @@ include_directories(
 
 # 添加子目录，让CMake处理它们的构建
 add_subdirectory(cpp_backend)
+add_subdirectory(examples/basic_usage)

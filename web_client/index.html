@@ -3,20 +3,17 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VisStream Client</title>
+    <link rel="stylesheet" href="css/style.css">
 </head>
 
 <body>
-    <h1>VisStream Phase 1 Test</h1>
-    <p>Check the browser's developer console for messages.</p>
+    <script src="js/lib/google-protobuf.js"></script>
 
-    <script>var global = global || window;</script>
+    <script src="js/lib/protocol/visualization_proto.js"></script>
 
-    <script src="https://cdn.jsdelivr.net/npm/google-protobuf@3.21.2/google-protobuf.js"></script>
-
-    <script src="js/lib/protocol/test_message_pb.js"></script>
-
-    <script src="js/main.js"></script>
+    <script type="module" src="js/main.js"></script>
 </body>
 
 </html>
