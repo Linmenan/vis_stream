@@ -131,3 +131,24 @@ canvas {
     /* Hidden by default */
     white-space: nowrap;
 }
+
+/* Toolbar 样式增强 */
+.toolbar {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 1em;
+    /* 元素之间的间距 */
+}
+
+.toolbar-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    /* 复选框和文字的间距 */
+    font-size: 0.9em;
+    color: #444;
+    cursor: pointer;
+    user-select: none;
+    /* 防止选中文字 */
+}

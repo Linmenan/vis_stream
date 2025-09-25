@@ -43,7 +43,12 @@ class AppManager {
                         <div id="x-axis-label" class="x-axis-label">X-Axis</div>
                     </div>
                     <div id="toolbar" class="toolbar">
-                        <button id="reset-view-btn">Reset View</button>
+                        <label class="toolbar-label">
+                            <input type="checkbox" id="dynamic-fit-toggle">
+                            动态适应
+                        </label>
+                        <button id="fit-view-btn">自适应视角</button>
+                        <button id="reset-view-btn">还原视角</button>
                     </div>
                 </div>`;
             document.body.innerHTML = figureTemplate;
@@ -176,16 +181,21 @@ class Plotter2D extends BasePlotter {
     constructor(container) {
         super(container);
         this.type = '2D';
+        this.isDynamicFitEnabled = false;
 
+        // 查找所有UI元素
         this.titleEl = container.querySelector('#figure-title');
         this.canvasContainer = container.querySelector('#canvas-container');
         this.xLabelEl = container.querySelector('#x-axis-label');
         this.yLabelEl = container.querySelector('#y-axis-label');
         this.resetBtn = container.querySelector('#reset-view-btn');
+        this.fitViewBtn = container.querySelector('#fit-view-btn');
+        this.dynamicFitToggle = container.querySelector('#dynamic-fit-toggle');
         this.tooltipEl = container.querySelector('#coord-tooltip');
         this.crosshairX = container.querySelector('#crosshair-x');
         this.crosshairY = container.querySelector('#crosshair-y');
 
+        // Three.js 场景设置
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0xffffff);
 
@@ -204,14 +214,87 @@ class Plotter2D extends BasePlotter {
         this.controls.enableRotate = false;
         this.controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY };
 
+        // 绑定所有新旧UI元素的事件监听器
         this.resetBtn.addEventListener('click', this.resetView);
+        this.fitViewBtn.addEventListener('click', () => this.fitViewToData());
+        this.dynamicFitToggle.addEventListener('change', this.onDynamicFitChange);
         this.canvasContainer.addEventListener('mousemove', this.onMouseMove);
         this.canvasContainer.addEventListener('mouseleave', this.onMouseLeave);
 
         this.animate();
     }
+    // 重写 animate 方法以加入动态适应逻辑
+    animate = () => {
+        this.animationFrameId = requestAnimationFrame(this.animate);
 
-    resetView = () => this.controls.reset();
+        // 如果开启了动态适应，则在每一帧都重新计算并设置视角
+        if (this.isDynamicFitEnabled) {
+            this.fitViewToData();
+        }
+
+        this.controls.update();
+        this.renderer.render(this.scene, this.camera);
+    }
+
+    // 处理动态适应开关变化的事件
+    onDynamicFitChange = (event) => {
+        this.isDynamicFitEnabled = event.target.checked;
+        this.controls.enabled = !this.isDynamicFitEnabled; // 动态适应时，禁用用户手动控制
+    };
+
+    // 计算所有可见对象的边界并自适应视角的核心方法
+    fitViewToData = (padding = 0.1) => {
+        if (this.sceneObjects.size === 0) return;
+
+        const sceneBBox = new THREE.Box3();
+        sceneBBox.makeEmpty();
+
+        this.sceneObjects.forEach(obj => {
+            sceneBBox.expandByObject(obj);
+        });
+
+        if (sceneBBox.isEmpty()) return;
+
+        const center = new THREE.Vector3();
+        sceneBBox.getCenter(center);
+
+        const size = new THREE.Vector3();
+        sceneBBox.getSize(size);
+
+        // 健壮性增强：处理边界框宽高为0的情况 (例如只有一个点)
+        if (size.x < 1e-6) size.x = 1;
+        if (size.y < 1e-6) size.y = 1;
+        const paddedWidth = size.x * (1 + padding);
+        const paddedHeight = size.y * (1 + padding);
+
+        const rect = this.canvasContainer.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return;
+
+        const canvasAspect = rect.width / rect.height;
+        const dataAspect = paddedWidth / paddedHeight;
+
+        let viewWidth, viewHeight;
+
+        if (canvasAspect > dataAspect) {
+            viewHeight = paddedHeight;
+            viewWidth = viewHeight * canvasAspect;
+        } else {
+            viewWidth = paddedWidth;
+            viewHeight = viewWidth / canvasAspect;
+        }
+
+        this.camera.left = center.x - viewWidth / 2;
+        this.camera.right = center.x + viewWidth / 2;
+        this.camera.top = center.y + viewHeight / 2;
+        this.camera.bottom = center.y - viewHeight / 2;
+
+        this.camera.updateProjectionMatrix();
+    };
+
+    resetView = () => {
+        this.controls.reset();
+        this.fitViewToData();
+    };
 
     onMouseMove = (event) => {
         const rect = this.canvasContainer.getBoundingClientRect();
@@ -237,26 +320,10 @@ class Plotter2D extends BasePlotter {
     };
 
     onWindowResize = () => {
-        // Fullscreen 3D plotter handles this differently
-        const containerRect = this.container.getBoundingClientRect();
-        this.container.style.width = `${containerRect.width}px`;
-        this.container.style.height = `${containerRect.height}px`;
-
         const rect = this.canvasContainer.getBoundingClientRect();
-        this.camera.left = -1; this.camera.right = 1;
-        this.camera.top = 1; this.camera.bottom = -1;
-
-        const aspect = rect.width / rect.height;
-        if (aspect > 1) { // wider than tall
-            this.camera.left *= aspect;
-            this.camera.right *= aspect;
-        } else { // taller than wide
-            this.camera.top /= aspect;
-            this.camera.bottom /= aspect;
-        }
-
-        this.camera.updateProjectionMatrix();
+        if (rect.width === 0 || rect.height === 0) return;
         this.renderer.setSize(rect.width, rect.height);
+        this.fitViewToData(); // 自适应视角逻辑会自动处理好宽高比
     };
 
     dispatch(command) {
@@ -290,6 +357,9 @@ class Plotter2D extends BasePlotter {
                 const props = command.getSetAxisProperties();
                 this.xLabelEl.innerText = props.getXLabel();
                 this.yLabelEl.innerText = props.getYLabel();
+                this.dynamicFitToggle.checked = false;
+                this.isDynamicFitEnabled = false;
+                this.controls.enabled = true;
                 this.camera.left = props.getXMin();
                 this.camera.right = props.getXMax();
                 this.camera.bottom = props.getYMin();
@@ -388,91 +458,90 @@ class ObjectFactory {
 
     // --- 2D Methods ---
     create2D(cmd) {
+        const obj = this.create2DPlaceholder(cmd);
+        // 对于简单类型，直接在这里更新
         const data = cmd.getGeometryDataCase();
-        const mat = cmd.getMaterial();
-        let obj = null;
-        switch (data) {
-            case proto.visualization.Add2DObject.GeometryDataCase.POINT_2D: {
-                const geom = cmd.getPoint2d();
-                const geometry = new THREE.BufferGeometry();
-                const pos = geom.getPosition();
-                geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([pos.getX(), pos.getY(), 0]), 3));
-                const color = mat.getColor();
-                const material = new THREE.PointsMaterial({
-                    color: new THREE.Color(color.getR(), color.getG(), color.getB()),
-                    size: mat.getPointSize() || 10.0,
-                    sizeAttenuation: false
-                });
-                obj = new THREE.Points(geometry, material);
-                break;
-            }
-            case proto.visualization.Add2DObject.GeometryDataCase.POSE_2D: {
-                const geom = cmd.getPose2d();
-                const color = mat.getColor();
-                const colorHex = new THREE.Color(color.getR(), color.getG(), color.getB()).getHex();
-
-                const group = new THREE.Group();
-                const arrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 0), 0.25, colorHex, 0.1, 0.08);
-                const pointGeom = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3));
-                const pointMat = new THREE.PointsMaterial({ color: colorHex, size: mat.getPointSize() || 6.0, sizeAttenuation: false });
-                const point = new THREE.Points(pointGeom, pointMat);
-                group.add(arrow, point);
-                obj = group;
-                this.update2DPose(obj, geom);
-                break;
-            }
-            case proto.visualization.Add2DObject.GeometryDataCase.LINE_2D: {
-                obj = new THREE.Line(); // Create empty, update will populate
-                this.update2D(obj, cmd.getUpdateObjectGeometry());
-                break;
-            }
-            case proto.visualization.Add2DObject.GeometryDataCase.POLYGON:
-            case proto.visualization.Add2DObject.GeometryDataCase.CIRCLE: {
-                obj = mat.getFilled() ? new THREE.Mesh() : new THREE.LineLoop();
-                this.update2D(obj, cmd.getUpdateObjectGeometry());
-                break;
-            }
-            case proto.visualization.Add2DObject.GeometryDataCase.BOX_2D: {
-                obj = new THREE.LineLoop();
-                this.update2D(obj, cmd.getUpdateObjectGeometry());
-                break;
-            }
+        if (data === proto.visualization.Add2DObject.GeometryDataCase.POINT_2D) {
+            const pos = cmd.getPoint2d().getPosition();
+            obj.geometry.attributes.position.setXYZ(0, pos.getX(), pos.getY(), 0);
+        } else if (data === proto.visualization.Add2DObject.GeometryDataCase.POSE_2D) {
+            this.update2DPose(obj, cmd.getPose2d());
+        } else {
+            // 对于复杂类型，调用 update2D 来填充几何
+            const updateCmd = this.packageAsUpdateCmd(cmd);
+            this.update2D(obj, updateCmd, cmd.getMaterial());
         }
         return obj;
     }
 
-    update2D(obj, cmd) {
+    update2D(obj, cmd, material) {
+        const mat = material || obj.material; // Allow passing material during creation
         const data = cmd.getGeometryDataCase();
         switch (data) {
-            case proto.visualization.Add2DObject.GeometryDataCase.POINT_2D: {
+            case proto.visualization.Update2DObjectGeometry.GeometryDataCase.POINT_2D: {
                 const pos = cmd.getPoint2d().getPosition();
                 obj.geometry.attributes.position.setXYZ(0, pos.getX(), pos.getY(), 0);
                 obj.geometry.attributes.position.needsUpdate = true;
                 break;
             }
-            case proto.visualization.Add2DObject.GeometryDataCase.POSE_2D: {
+            case proto.visualization.Update2DObjectGeometry.GeometryDataCase.POSE_2D: {
                 this.update2DPose(obj, cmd.getPose2d());
                 break;
             }
-            case proto.visualization.Add2DObject.GeometryDataCase.LINE_2D: {
+            case proto.visualization.Update2DObjectGeometry.GeometryDataCase.LINE_2D: {
                 const geom = cmd.getLine2d();
                 const points = geom.getPointsList().map(p => new THREE.Vector3(p.getPosition().getX(), p.getPosition().getY(), 0));
                 obj.geometry.dispose(); // Dispose old geometry
                 obj.geometry = new THREE.BufferGeometry().setFromPoints(points);
-                if (!obj.material) {
-                    const mat = cmd.getMaterial(); // Assumes material is on update for lines
-                    const color = mat.getColor();
-                    obj.material = new THREE.LineBasicMaterial({
-                        color: new THREE.Color(color.getR(), color.getG(), color.getB()),
-                        linewidth: mat.getLineWidth() || 1
-                    });
+                break;
+            }
+            case proto.visualization.Update2DObjectGeometry.GeometryDataCase.POLYGON: {
+                const geom = cmd.getPolygon();
+                const vertices = geom.getVerticesList().map(p => p.getPosition());
+                const shape = new THREE.Shape(vertices.map(v => new THREE.Vector2(v.getX(), v.getY())));
+                obj.geometry.dispose();
+                obj.geometry = mat.type === 'MeshBasicMaterial' ? new THREE.ShapeGeometry(shape) : new THREE.BufferGeometry().setFromPoints(shape.getPoints());
+                break;
+            }
+            case proto.visualization.Update2DObjectGeometry.GeometryDataCase.CIRCLE: {
+                const geom = cmd.getCircle();
+                const center = geom.getCenter();
+                const radius = geom.getRadius();
+                obj.geometry.dispose();
+                const curve = new THREE.EllipseCurve(center.getX(), center.getY(), radius, radius, 0, 2 * Math.PI, false, 0);
+                const points = curve.getPoints(50);
+                obj.geometry = new THREE.BufferGeometry().setFromPoints(points);
+                if (mat.type === 'MeshBasicMaterial') {
+                    const shape = new THREE.Shape(points);
+                    obj.geometry.dispose();
+                    obj.geometry = new THREE.ShapeGeometry(shape);
                 }
+                break;
+            }
+            case proto.visualization.Update2DObjectGeometry.GeometryDataCase.BOX_2D: {
+                const geom = cmd.getBox2d();
+                const center = geom.getCenter().getPosition();
+                const theta = geom.getCenter().getTheta();
+                const w = geom.getWidth();
+                const lf = geom.getLengthFront();
+                const lr = geom.getLengthRear();
+                const corners = [
+                    new THREE.Vector2(-lr, w / 2), new THREE.Vector2(lf, w / 2),
+                    new THREE.Vector2(lf, -w / 2), new THREE.Vector2(-lr, -w / 2)
+                ];
+                corners.forEach(c => c.rotateAround(new THREE.Vector2(0, 0), theta).add(new THREE.Vector2(center.getX(), center.getY())));
+                const points = corners.map(c => new THREE.Vector3(c.x, c.y, 0));
+                obj.geometry.dispose();
+                obj.geometry = new THREE.BufferGeometry().setFromPoints(points);
                 break;
             }
         }
     }
 
     // --- Helper Methods ---
+    create2DPlaceholder(cmd) { const data = cmd.getGeometryDataCase(); const mat = cmd.getMaterial(); let obj; switch (data) { case proto.visualization.Add2DObject.GeometryDataCase.POINT_2D: { const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3)); const color = mat.getColor(); const material = new THREE.PointsMaterial({ color: new THREE.Color(color.getR(), color.getG(), color.getB()), size: mat.getPointSize() || 10.0, sizeAttenuation: false }); obj = new THREE.Points(geometry, material); break; } case proto.visualization.Add2DObject.GeometryDataCase.POSE_2D: { const color = mat.getColor(); const colorHex = new THREE.Color(color.getR(), color.getG(), color.getB()).getHex(); const group = new THREE.Group(); const arrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 0), 0.25, colorHex, 0.1, 0.08); const pointGeom = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3)); const pointMat = new THREE.PointsMaterial({ color: colorHex, size: mat.getPointSize() || 6.0, sizeAttenuation: false }); const point = new THREE.Points(pointGeom, pointMat); group.add(arrow, point); obj = group; break; } default: { const geometry = new THREE.BufferGeometry(); const color = mat.getColor(); const materialArgs = { color: new THREE.Color(color.getR(), color.getG(), color.getB()), side: THREE.DoubleSide }; if (mat.getFilled()) { const fillColor = mat.getFillColor(); materialArgs.opacity = fillColor.getA(); materialArgs.transparent = fillColor.getA() < 1.0; } const material = mat.getFilled() ? new THREE.MeshBasicMaterial(materialArgs) : new THREE.LineBasicMaterial(materialArgs); obj = mat.getFilled() ? new THREE.Mesh(geometry, material) : new THREE.LineLoop(geometry, material); break; } } return obj; }
+    packageAsUpdateCmd(addCmd) { const updateCmd = new proto.visualization.Update2DObjectGeometry(); const data = addCmd.getGeometryDataCase(); updateCmd.setId(addCmd.getId()); if (data === proto.visualization.Add2DObject.GeometryDataCase.POINT_2D) updateCmd.setPoint2d(addCmd.getPoint2d()); else if (data === proto.visualization.Add2DObject.GeometryDataCase.POSE_2D) updateCmd.setPose2d(addCmd.getPose2d()); else if (data === proto.visualization.Add2DObject.GeometryDataCase.LINE_2D) updateCmd.setLine2d(addCmd.getLine2d()); else if (data === proto.visualization.Add2DObject.GeometryDataCase.POLYGON) updateCmd.setPolygon(addCmd.getPolygon()); else if (data === proto.visualization.Add2DObject.GeometryDataCase.CIRCLE) updateCmd.setCircle(addCmd.getCircle()); else if (data === proto.visualization.Add2DObject.GeometryDataCase.BOX_2D) updateCmd.setBox2d(addCmd.getBox2d()); return updateCmd; }
+
     updatePose(obj, poseProto) {
         const pos = poseProto.getPosition().getPosition();
         const quat = poseProto.getQuaternion();
