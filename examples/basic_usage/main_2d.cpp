@@ -54,14 +54,16 @@ int main() {
     auto point = Vis::Point2D::create({-3.5f, 2.0f});
     visualization::Material point_mat;
     point_mat.mutable_color()->set_r(1.0f);
-    point_mat.set_point_size(10.0f);
+    point_mat.set_point_size(1.0f);
+    point_mat.set_point_shape(
+        visualization::Material::CIRCLE);  // 设置点的形状为圆形
     point_mat.set_legend("Single Point");
     server.show(point, "my_point2d", point_mat, false);
 
     auto pose = Vis::Pose2D::create({-3.5f, 0.5f}, 0.785f);
     visualization::Material pose_mat;
     pose_mat.mutable_color()->set_g(1.0f);
-    pose_mat.set_point_size(15.0f);
+    pose_mat.set_point_size(1.0f);
     pose_mat.set_legend("Pose (Arrow)");
     server.show(pose, "my_pose2d", pose_mat, false);
 

@@ -21,6 +21,7 @@ goog.provide('proto.visualization.DeleteObject');
 goog.provide('proto.visualization.Line2D');
 goog.provide('proto.visualization.Material');
 goog.provide('proto.visualization.Material.LineStyle');
+goog.provide('proto.visualization.Material.PointShape');
 goog.provide('proto.visualization.Point2D');
 goog.provide('proto.visualization.Point3D');
 goog.provide('proto.visualization.Polygon');
@@ -3143,7 +3144,8 @@ proto.visualization.Material.toObject = function(includeInstance, msg) {
     filled: jspb.Message.getFieldWithDefault(msg, 5, false),
     fillColor: (f = msg.getFillColor()) && proto.visualization.ColorRGBA.toObject(includeInstance, f),
     legendOn: jspb.Message.getFieldWithDefault(msg, 7, false),
-    lineStyle: jspb.Message.getFieldWithDefault(msg, 8, 0)
+    lineStyle: jspb.Message.getFieldWithDefault(msg, 8, 0),
+    pointShape: jspb.Message.getFieldWithDefault(msg, 9, 0)
   };
 
   if (includeInstance) {
@@ -3213,6 +3215,10 @@ proto.visualization.Material.deserializeBinaryFromReader = function(msg, reader)
     case 8:
       var value = /** @type {!proto.visualization.Material.LineStyle} */ (reader.readEnum());
       msg.setLineStyle(value);
+      break;
+    case 9:
+      var value = /** @type {!proto.visualization.Material.PointShape} */ (reader.readEnum());
+      msg.setPointShape(value);
       break;
     default:
       reader.skipField();
@@ -3301,6 +3307,13 @@ proto.visualization.Material.serializeBinaryToWriter = function(message, writer)
       f
     );
   }
+  f = message.getPointShape();
+  if (f !== 0.0) {
+    writer.writeEnum(
+      9,
+      f
+    );
+  }
 };
 
 
@@ -3311,6 +3324,16 @@ proto.visualization.Material.LineStyle = {
   SOLID: 0,
   DASHED: 1,
   DOTTED: 2
+};
+
+/**
+ * @enum {number}
+ */
+proto.visualization.Material.PointShape = {
+  SQUARE: 0,
+  CIRCLE: 1,
+  CROSS: 2,
+  DIAMOND: 3
 };
 
 /**
@@ -3464,6 +3487,21 @@ proto.visualization.Material.prototype.getLineStyle = function() {
 /** @param {!proto.visualization.Material.LineStyle} value */
 proto.visualization.Material.prototype.setLineStyle = function(value) {
   jspb.Message.setProto3EnumField(this, 8, value);
+};
+
+
+/**
+ * optional PointShape point_shape = 9;
+ * @return {!proto.visualization.Material.PointShape}
+ */
+proto.visualization.Material.prototype.getPointShape = function() {
+  return /** @type {!proto.visualization.Material.PointShape} */ (jspb.Message.getFieldWithDefault(this, 9, 0));
+};
+
+
+/** @param {!proto.visualization.Material.PointShape} value */
+proto.visualization.Material.prototype.setPointShape = function(value) {
+  jspb.Message.setProto3EnumField(this, 9, value);
 };
 
 

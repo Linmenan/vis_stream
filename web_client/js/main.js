@@ -48,7 +48,6 @@ class AppManager {
                             <input type="checkbox" id="dynamic-fit-toggle">
                             动态适应
                         </label>
-                        <button id="fit-view-btn">自适应视角</button>
                         <button id="reset-view-btn">还原视角</button>
                     </div>
                 </div>`;
@@ -198,7 +197,6 @@ class Plotter2D extends BasePlotter {
         this.xLabelEl = container.querySelector('#x-axis-label');
         this.yLabelEl = container.querySelector('#y-axis-label');
         this.resetBtn = container.querySelector('#reset-view-btn');
-        this.fitViewBtn = container.querySelector('#fit-view-btn');
         this.dynamicFitToggle = container.querySelector('#dynamic-fit-toggle');
         this.tooltipEl = container.querySelector('#coord-tooltip');
         this.crosshairX = container.querySelector('#crosshair-x');
@@ -227,7 +225,6 @@ class Plotter2D extends BasePlotter {
 
         // 绑定所有新旧UI元素的事件监听器
         this.resetBtn.addEventListener('click', this.resetView);
-        this.fitViewBtn.addEventListener('click', () => this.fitViewToData());
         this.dynamicFitToggle.addEventListener('change', this.onDynamicFitChange);
         this.canvasContainer.addEventListener('mousemove', this.onMouseMove);
         this.canvasContainer.addEventListener('mouseleave', this.onMouseLeave);
@@ -240,6 +237,7 @@ class Plotter2D extends BasePlotter {
 
         // 如果开启了动态适应，则在每一帧都重新计算并设置视角
         if (this.isDynamicFitEnabled) {
+            this.controls.reset();
             this.fitViewToData();
         }
 
@@ -299,6 +297,7 @@ class Plotter2D extends BasePlotter {
         this.camera.top = center.y + viewHeight / 2;
         this.camera.bottom = center.y - viewHeight / 2;
 
+        this.camera.zoom = 1;
         this.camera.updateProjectionMatrix();
     };
 
@@ -436,6 +435,51 @@ class Plotter2D extends BasePlotter {
         `;
     }
 }
+// [新增] 一个辅助对象，用于创建和缓存点的纹理
+const PointTextureFactory = {
+    cache: {},
+    getTexture: function (shape) {
+        if (this.cache[shape]) {
+            return this.cache[shape];
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'white';
+
+        switch (shape) {
+            case proto.visualization.Material.PointShape.CIRCLE:
+                ctx.beginPath();
+                ctx.arc(32, 32, 30, 0, 2 * Math.PI);
+                ctx.fill();
+                break;
+            case proto.visualization.Material.PointShape.DIAMOND:
+                ctx.beginPath();
+                ctx.moveTo(32, 2); ctx.lineTo(62, 32); ctx.lineTo(32, 62); ctx.lineTo(2, 32);
+                ctx.closePath();
+                ctx.fill();
+                break;
+            case proto.visualization.Material.PointShape.CROSS:
+                ctx.lineWidth = 10;
+                ctx.strokeStyle = 'white';
+                ctx.beginPath();
+                ctx.moveTo(10, 10); ctx.lineTo(54, 54);
+                ctx.moveTo(54, 10); ctx.lineTo(10, 54);
+                ctx.stroke();
+                break;
+            case proto.visualization.Material.PointShape.SQUARE:
+            default:
+                ctx.fillRect(4, 4, 56, 56);
+                break;
+        }
+
+        const texture = new THREE.CanvasTexture(canvas);
+        this.cache[shape] = texture;
+        return texture;
+    }
+};
 
 /**
  * Creates and updates Three.js objects from Protobuf data.
@@ -453,11 +497,7 @@ class ObjectFactory {
                 const pos = geom.getPosition();
                 geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([pos.getX(), pos.getY(), pos.getZ()]), 3));
                 const color = mat.getColor();
-                const material = new THREE.PointsMaterial({
-                    color: new THREE.Color(color.getR(), color.getG(), color.getB()),
-                    size: mat.getPointSize() || 15.0,
-                    sizeAttenuation: false
-                });
+                const material = this.createAdvancedPointsMaterial(mat);
                 obj = new THREE.Points(geometry, material);
                 break;
             }
@@ -605,13 +645,79 @@ class ObjectFactory {
     }
 
     // --- Helper Methods ---
+    createAdvancedPointsMaterial(mat) {
+        // 在这里定义最小和最大的像素尺寸
+        const minPixelSize = 2000.0;
+        const maxPixelSize = 25000.0;
+
+        const color = mat.getColor();
+        const material = new THREE.PointsMaterial({
+            color: new THREE.Color(color.getR(), color.getG(), color.getB()),
+            // point_size 现在是纯粹的世界单位，作为基础尺寸
+            size: mat.getPointSize() || 0.1,
+            map: PointTextureFactory.getTexture(mat.getPointShape()),
+            sizeAttenuation: true, // 必须开启，以便在着色器中获得透视缩放效果
+            transparent: true,
+            alphaTest: 0.5
+        });
+
+        // onBeforeCompile Hook: 在编译着色器前对其进行修改
+        material.onBeforeCompile = (shader) => {
+            // 1. 注入我们自定义的 uniform 变量 (从JS传递到GPU的变量)
+            shader.uniforms.minPixelSize = { value: minPixelSize };
+            shader.uniforms.maxPixelSize = { value: maxPixelSize };
+
+            // 2. 在顶点着色器的 main 函数之前，声明我们的 uniform
+            shader.vertexShader = `
+                uniform float minPixelSize;
+                uniform float maxPixelSize;
+            ` + shader.vertexShader;
+
+            // 3. 替换掉 Three.js 默认的点尺寸计算逻辑
+            shader.vertexShader = shader.vertexShader.replace(
+                '#include <points_vertex>',
+                `
+                vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+
+                // [修正] projected_size 的计算公式
+                // 旧公式适用于3D透视相机，新公式适用于2D正交相机
+                float projected_size = size * projectionMatrix[1][1] * rendererSize.y * 0.5;
+                
+                // 使用 clamp() 函数将理论像素大小限制在 [min, max] 区间内
+                gl_PointSize = clamp(projected_size, minPixelSize, maxPixelSize);
+                `
+            );
+        };
+
+        // Three.js v154+ 需要这个自定义的 defines
+        // 以确保我们的 uniform 能被识别
+        material.defines = { 'USE_SIZEATTENUATION': '' };
+
+        return material;
+    }
     create2DPlaceholder(cmd) {
         const data = cmd.getGeometryDataCase();
         const mat = cmd.getMaterial();
         let obj;
         switch (data) {
-            case proto.visualization.Add2DObject.GeometryDataCase.POINT_2D: { const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3)); const color = mat.getColor(); const material = new THREE.PointsMaterial({ color: new THREE.Color(color.getR(), color.getG(), color.getB()), size: mat.getPointSize() || 10.0, sizeAttenuation: false }); obj = new THREE.Points(geometry, material); break; }
-            case proto.visualization.Add2DObject.GeometryDataCase.POSE_2D: { const color = mat.getColor(); const colorHex = new THREE.Color(color.getR(), color.getG(), color.getB()).getHex(); const group = new THREE.Group(); const arrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 0), 0.25, colorHex, 0.1, 0.08); const pointGeom = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3)); const pointMat = new THREE.PointsMaterial({ color: colorHex, size: mat.getPointSize() || 6.0, sizeAttenuation: false }); const point = new THREE.Points(pointGeom, pointMat); group.add(arrow, point); obj = group; break; }
+            case proto.visualization.Add2DObject.GeometryDataCase.POINT_2D: {
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3));
+                const color = mat.getColor();
+                const material = this.createAdvancedPointsMaterial(mat);
+                obj = new THREE.Points(geometry, material);
+                break;
+            }
+            case proto.visualization.Add2DObject.GeometryDataCase.POSE_2D: {
+                const color = mat.getColor();
+                const colorHex = new THREE.Color(color.getR(), color.getG(), color.getB()).getHex();
+                const group = new THREE.Group();
+                const arrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 0), 0.25, colorHex, 0.1, 0.08);
+                const pointGeom = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3));
+                const pointMat = this.createAdvancedPointsMaterial(mat);
+                const point = new THREE.Points(pointGeom, pointMat); group.add(arrow, point); obj = group;
+                break;
+            }
             // [修正] 为 Line2D 单独创建一个 case，确保它使用 THREE.Line
             case proto.visualization.Add2DObject.GeometryDataCase.LINE_2D: {
                 const geometry = new THREE.BufferGeometry();

@@ -80,6 +80,14 @@ message Material {
     DOTTED = 2;
   }
   LineStyle line_style = 8; // 新增字段
+                            // 新增：点的形状定义
+  enum PointShape {
+    SQUARE = 0;  // 方形 (默认)
+    CIRCLE = 1;  // 圆形
+    CROSS = 2;   // X形
+    DIAMOND = 3; // 菱形
+  }
+  PointShape point_shape = 9;
 }
 
 // --- 核心指令 ---

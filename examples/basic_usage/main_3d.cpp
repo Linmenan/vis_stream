@@ -61,7 +61,9 @@ int main() {
     auto point = Vis::Point3D::create({1.0f, 0.0f, 0.0f});
     visualization::Material point_mat;
     point_mat.mutable_color()->set_r(1.0f);
-    point_mat.set_point_size(20.0f);
+    point_mat.set_point_size(1.0f);
+    point_mat.set_point_shape(
+        visualization::Material::CROSS);  // 设置点的形状为圆形
     server.show(point, "my_point", point_mat, true);
 
     auto ball = Vis::Ball::create({-1.0f, 0.0f, 0.0f}, 0.2f);
