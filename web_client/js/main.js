@@ -497,7 +497,7 @@ class ObjectFactory {
                 const pos = geom.getPosition();
                 geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([pos.getX(), pos.getY(), pos.getZ()]), 3));
                 const color = mat.getColor();
-                const material = this.createAdvancedPointsMaterial(mat);
+                const material = this.createBasicPointsMaterial(mat);
                 obj = new THREE.Points(geometry, material);
                 break;
             }
@@ -645,56 +645,24 @@ class ObjectFactory {
     }
 
     // --- Helper Methods ---
-    createAdvancedPointsMaterial(mat) {
-        // 在这里定义最小和最大的像素尺寸
-        const minPixelSize = 2000.0;
-        const maxPixelSize = 25000.0;
-
+    createBasicPointsMaterial(mat) {
         const color = mat.getColor();
-        const material = new THREE.PointsMaterial({
+        return new THREE.PointsMaterial({
             color: new THREE.Color(color.getR(), color.getG(), color.getB()),
-            // point_size 现在是纯粹的世界单位，作为基础尺寸
-            size: mat.getPointSize() || 0.1,
+
+            // 关键：size 现在直接代表像素大小
+            size: mat.getPointSize() || 10, // 提供一个默认值，例如10像素
+
             map: PointTextureFactory.getTexture(mat.getPointShape()),
-            sizeAttenuation: true, // 必须开启，以便在着色器中获得透视缩放效果
+
+            // 关键：关闭尺寸衰减，让 size 成为固定的像素单位
+            sizeAttenuation: false,
+
             transparent: true,
             alphaTest: 0.5
         });
-
-        // onBeforeCompile Hook: 在编译着色器前对其进行修改
-        material.onBeforeCompile = (shader) => {
-            // 1. 注入我们自定义的 uniform 变量 (从JS传递到GPU的变量)
-            shader.uniforms.minPixelSize = { value: minPixelSize };
-            shader.uniforms.maxPixelSize = { value: maxPixelSize };
-
-            // 2. 在顶点着色器的 main 函数之前，声明我们的 uniform
-            shader.vertexShader = `
-                uniform float minPixelSize;
-                uniform float maxPixelSize;
-            ` + shader.vertexShader;
-
-            // 3. 替换掉 Three.js 默认的点尺寸计算逻辑
-            shader.vertexShader = shader.vertexShader.replace(
-                '#include <points_vertex>',
-                `
-                vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
-
-                // [修正] projected_size 的计算公式
-                // 旧公式适用于3D透视相机，新公式适用于2D正交相机
-                float projected_size = size * projectionMatrix[1][1] * rendererSize.y * 0.5;
-                
-                // 使用 clamp() 函数将理论像素大小限制在 [min, max] 区间内
-                gl_PointSize = clamp(projected_size, minPixelSize, maxPixelSize);
-                `
-            );
-        };
-
-        // Three.js v154+ 需要这个自定义的 defines
-        // 以确保我们的 uniform 能被识别
-        material.defines = { 'USE_SIZEATTENUATION': '' };
-
-        return material;
     }
+
     create2DPlaceholder(cmd) {
         const data = cmd.getGeometryDataCase();
         const mat = cmd.getMaterial();
@@ -704,7 +672,7 @@ class ObjectFactory {
                 const geometry = new THREE.BufferGeometry();
                 geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3));
                 const color = mat.getColor();
-                const material = this.createAdvancedPointsMaterial(mat);
+                const material = this.createBasicPointsMaterial(mat);
                 obj = new THREE.Points(geometry, material);
                 break;
             }
@@ -714,7 +682,7 @@ class ObjectFactory {
                 const group = new THREE.Group();
                 const arrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 0), 0.25, colorHex, 0.1, 0.08);
                 const pointGeom = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3));
-                const pointMat = this.createAdvancedPointsMaterial(mat);
+                const pointMat = this.createBasicPointsMaterial(mat);
                 const point = new THREE.Points(pointGeom, pointMat); group.add(arrow, point); obj = group;
                 break;
             }
