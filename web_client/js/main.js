@@ -1,3 +1,8 @@
+// TODO 整个前端的几何坐标系，图像坐标系，要有一个统一的管理，实现几何体，网格线，刻度，十字光标值的统一对齐
+// 目前存在的问题：
+// 1、十字光标显示的坐标不是几何坐标，
+// 2、网格线绘制范围在放大时还是存在不能充满整个图窗，
+// 3、刻度值出现的位置与网格线没对应上
 import * as THREE from './lib/three.module.js';
 import { OrbitControls } from './lib/OrbitControls.js';
 // import * as proto from './lib/protocol/visualization_pb.js';
@@ -32,7 +37,9 @@ class AppManager {
         if (type === '2D') {
             const figureTemplate = `
                 <div id="figure-container" class="figure-container">
+                    
                     <h2 id="figure-title" class="figure-title">2D Plot</h2>
+                    
                     <div class="plot-area">
                         <div id="y-axis-container" class="axis-container y-axis"></div>
                         <div id="canvas-container" class="canvas-container">
@@ -41,8 +48,10 @@ class AppManager {
                             <div id="coord-tooltip" class="coord-tooltip"></div>
                         </div>
                         <div id="x-axis-container" class="axis-container x-axis"></div>
-                        <div id="legend-container" class="legend-container"></div>
                     </div>
+
+                    <div id="legend-container" class="legend-container"></div>
+
                     <div id="toolbar" class="toolbar">
                         <label class="toolbar-label">
                             <input type="checkbox" id="dynamic-fit-toggle">
@@ -50,6 +59,7 @@ class AppManager {
                         </label>
                         <button id="reset-view-btn">还原视角</button>
                     </div>
+                    
                 </div>`;
             document.body.innerHTML = figureTemplate;
             const container = document.getElementById('figure-container');
@@ -224,28 +234,72 @@ class DynamicGrid {
      * 核心更新函数，在每一帧被调用。
      */
     update() {
-        const viewWidth = this.camera.right - this.camera.left;
-        const viewHeight = this.camera.top - this.camera.bottom;
+        // 根据摄像机的position和zoom计算当前的实际视图边界
+        const zoom = this.camera.zoom;
+        const position = this.camera.position;
+
+        // 计算基于当前zoom和position的有效视图尺寸
+        const viewWidth = (this.camera.right - this.camera.left) / zoom;
+        const viewHeight = (this.camera.top - this.camera.bottom) / zoom;
+
+        // 计算当前的实际边界
+        const effectiveLeft = position.x - viewWidth / 2;
+        const effectiveRight = position.x + viewWidth / 2;
+        const effectiveBottom = position.y - viewHeight / 2;
+        const effectiveTop = position.y + viewHeight / 2;
 
         const xInterval = this.calculateNiceInterval(viewWidth);
         const yInterval = this.calculateNiceInterval(viewHeight);
+
+        // 扩展网格生成范围，确保覆盖整个可见区域
+        const paddingFactor = 0.2;
+        const extendedLeft = effectiveLeft - viewWidth * paddingFactor;
+        const extendedRight = effectiveRight + viewWidth * paddingFactor;
+        const extendedBottom = effectiveBottom - viewHeight * paddingFactor;
+        const extendedTop = effectiveTop + viewHeight * paddingFactor;
 
         const vertices = [];
         const newXLabels = [];
         const newYLabels = [];
 
         // --- 更新垂直网格线和X轴刻度 ---
-        const xStart = Math.ceil(this.camera.left / xInterval) * xInterval;
-        for (let x = xStart; x <= this.camera.right; x += xInterval) {
-            vertices.push(x, this.camera.bottom, 0, x, this.camera.top, 0);
-            newXLabels.push({ value: x, position: this.worldToScreenX(x) });
+        // [关键修改] 使用更精确的整数对齐方法
+        const xStart = this.roundToPrecision(Math.floor(extendedLeft / xInterval) * xInterval, 6);
+        const xEnd = this.roundToPrecision(Math.ceil(extendedRight / xInterval) * xInterval, 6);
+
+        for (let x = xStart; x <= xEnd; x += xInterval) {
+            // [关键修改] 对x值进行精度修整，避免浮点数误差
+            const preciseX = this.roundToPrecision(x, 6);
+
+            // 只在可见区域内绘制标签
+            if (preciseX >= effectiveLeft && preciseX <= effectiveRight) {
+                newXLabels.push({
+                    value: preciseX,
+                    position: this.worldToScreenX(preciseX, effectiveLeft, effectiveRight)
+                });
+            }
+            // 网格线绘制到扩展边界
+            vertices.push(preciseX, extendedBottom, 0, preciseX, extendedTop, 0);
         }
 
         // --- 更新水平网格线和Y轴刻度 ---
-        const yStart = Math.ceil(this.camera.bottom / yInterval) * yInterval;
-        for (let y = yStart; y <= this.camera.top; y += yInterval) {
-            vertices.push(this.camera.left, y, 0, this.camera.right, y, 0);
-            newYLabels.push({ value: y, position: this.worldToScreenY(y) });
+        // [关键修改] 使用更精确的整数对齐方法
+        const yStart = this.roundToPrecision(Math.floor(extendedBottom / yInterval) * yInterval, 6);
+        const yEnd = this.roundToPrecision(Math.ceil(extendedTop / yInterval) * yInterval, 6);
+
+        for (let y = yStart; y <= yEnd; y += yInterval) {
+            // [关键修改] 对y值进行精度修整，避免浮点数误差
+            const preciseY = this.roundToPrecision(y, 6);
+
+            // 只在可见区域内绘制标签
+            if (preciseY >= effectiveBottom && preciseY <= effectiveTop) {
+                newYLabels.push({
+                    value: preciseY,
+                    position: this.worldToScreenY(preciseY, effectiveBottom, effectiveTop)
+                });
+            }
+            // 网格线绘制到扩展边界
+            vertices.push(extendedLeft, preciseY, 0, extendedRight, preciseY, 0);
         }
 
         // 更新网格几何体
@@ -256,22 +310,29 @@ class DynamicGrid {
         this.updateLabels(this.xAxisContainer, this.xLabels, newXLabels, 'x');
         this.updateLabels(this.yAxisContainer, this.yLabels, newYLabels, 'y');
     }
-
-    // --- 坐标转换辅助函数 ---
-    worldToScreenX(worldX) {
+    roundToPrecision(value, precision = 6) {
+        const factor = Math.pow(10, precision);
+        return Math.round(value * factor) / factor;
+    }
+    // [修改] 更新坐标转换方法，接受动态边界参数
+    worldToScreenX(worldX, left, right) {
         const rect = this.canvasContainer.getBoundingClientRect();
-        const viewWidth = this.camera.right - this.camera.left;
-        return ((worldX - this.camera.left) / viewWidth) * rect.width;
+        const viewWidth = right - left;
+        const preciseWorldX = this.roundToPrecision(worldX, 6);
+        const preciseLeft = this.roundToPrecision(left, 6);
+        return ((preciseWorldX - preciseLeft) / viewWidth) * rect.width;
     }
 
-    worldToScreenY(worldY) {
+    worldToScreenY(worldY, bottom, top) {
         const rect = this.canvasContainer.getBoundingClientRect();
-        const viewHeight = this.camera.top - this.camera.bottom;
+        const viewHeight = top - bottom;
+        const preciseWorldY = this.roundToPrecision(worldY, 6);
+        const preciseBottom = this.roundToPrecision(bottom, 6);
         // Y轴是反向的
-        return (1 - (worldY - this.camera.bottom) / viewHeight) * rect.height;
+        return (1 - (preciseWorldY - preciseBottom) / viewHeight) * rect.height;
     }
 
-    // --- DOM操作辅助函数 ---
+    // [修改] 更新标签更新方法，传递正确的边界参数
     updateLabels(container, oldLabels, newLabelsData, axis) {
         // 移除所有旧标签
         oldLabels.forEach(label => label.remove());

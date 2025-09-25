@@ -51,7 +51,7 @@ int main() {
     server.set_title(window_id, "Full 2D Demo with Legends", false);
 
     // --- 在循环外创建所有几何体 ---
-    auto point = Vis::Point2D::create({-3.5f, 2.0f});
+    auto point = Vis::Point2D::create({0.0f, 0.0f});
     visualization::Material point_mat;
     point_mat.mutable_color()->set_r(1.0f);
     point_mat.set_point_size(10.0f);
@@ -123,7 +123,7 @@ int main() {
       float cos_a = cosf(angle);
       float sin_a = sinf(angle);
 
-      point->set_position({-3.5f + cos_a * 0.5f, 2.0f});
+      // point->set_position({-3.5f + cos_a * 0.5f, 2.0f});
       pose->set_angle(angle * 2.0f);
       circle->set_radius(0.25f + (sin_a + 1.0f) * 0.25f);
       auto current_box_pose = box->get_center();

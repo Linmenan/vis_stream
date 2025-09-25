@@ -17,31 +17,50 @@ canvas {
 
 /* 2D Figure Container Styles */
 .figure-container {
-    display: flex;
-    flex-direction: column;
+    /* [修改] 使用 display: grid */
+    display: grid;
+
+    /* 定义网格的列：第一列占据剩余空间，第二列固定200px宽 */
+    grid-template-columns: 1fr 200px;
+
+    /* 定义网格的行：标题和工具栏高度自适应，中间的绘图区占据剩余高度 */
+    grid-template-rows: auto 1fr auto;
+
+    /* 为网格区域命名，方便后续元素定位 */
+    grid-template-areas:
+        "title   title"
+        "plot    legend"
+        "toolbar toolbar";
+
+    /* 其他样式保持不变 */
     background-color: #fff;
     border: 1px solid #ccc;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
     padding: 1.5em;
     box-sizing: border-box;
-    width: 1200px;
-    height: 800px;
+    width: 1450px;
+    /* 宽度需要适应 1200px + 200px + 间隙 */
+    height: 900px;
+    /* 高度可以适当增加以容纳标题和工具栏 */
+    gap: 1em;
+    /* 定义网格行和列之间的间距 */
 }
 
 .figure-title {
+    grid-area: title;
+    /* 放置在名为 'title' 的区域 */
     text-align: center;
-    margin: 0 0 1em 0;
+    margin: 0;
     font-size: 1.5em;
     color: #333;
-    flex-shrink: 0;
 }
 
 .plot-area {
+    grid-area: plot;
+    /* 放置在名为 'plot' 的区域 */
     position: relative;
-    width: 100%;
-    flex-grow: 1;
+    /* [重要] 绘图区的高度和宽度将由网格自动管理，无需设置固定值 */
     display: grid;
-    /* Layout for: Y-Axis Ticks, Canvas, X-Axis Ticks */
     grid-template-columns: 60px 1fr;
     grid-template-rows: 1fr 40px;
 }
@@ -99,12 +118,14 @@ canvas {
 
 /* Toolbar Styles */
 .toolbar {
-    margin-top: 1em;
+    grid-area: toolbar;
+    /* 放置在名为 'toolbar' 的区域 */
+    /* [修改] margin-top 不再需要，由 grid-gap 控制间距 */
     display: flex;
+    /* [修改] justify-content 控制内部元素在整个区域的右侧 */
     justify-content: flex-end;
     align-items: center;
     gap: 1em;
-    flex-shrink: 0;
 }
 
 .toolbar button {
@@ -163,10 +184,13 @@ canvas {
 
 /* Legend Styles */
 .legend-container {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    background-color: rgba(255, 255, 255, 0.85);
+    grid-area: legend;
+    /* 放置在名为 'legend' 的区域 */
+    /* 高度由网格自动拉伸，宽度在 .figure-container 中已定义 */
+    overflow-y: auto;
+    /* 保持内容过多时滚动 */
+
+    background-color: #f7f7ff;
     border: 1px solid #ccc;
     border-radius: 5px;
     padding: 10px;
@@ -174,10 +198,7 @@ canvas {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    pointer-events: none;
-    /* Allows mouse events to pass through to the canvas */
-    z-index: 10;
-    /* Ensures legend is on top of the canvas */
+    box-sizing: border-box;
 }
 
 .legend-item {
