@@ -121,6 +121,7 @@ class Plotter3D extends BasePlotter {
 
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x222222);
+        // 初始化透视相机
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
 
@@ -192,175 +193,219 @@ class Plotter3D extends BasePlotter {
     }
 }
 /**
+ * 统一的坐标系统管理器
+ * 负责几何坐标、屏幕坐标、图像坐标之间的转换和一致性维护
+ */
+class CoordinateSystem {
+    constructor(canvasContainer) {
+        this.canvasContainer = canvasContainer;
+        this.updateCanvasSize();
+    }
+
+    updateCanvasSize() {
+        const rect = this.canvasContainer.getBoundingClientRect();
+        this.canvasWidth = rect.width;
+        this.canvasHeight = rect.height;
+        this.canvasAspect = this.canvasWidth / this.canvasHeight;
+    }
+
+    // [关键修改] 直接从摄像机获取世界边界
+    getWorldBounds(camera) {
+        // THREE.js正交摄像机的边界就是实际的世界坐标边界
+        const zoomFactor = 1 / camera.zoom;
+        return {
+            left: camera.left * zoomFactor,
+            right: camera.right * zoomFactor,
+            bottom: camera.bottom * zoomFactor,
+            top: camera.top * zoomFactor
+        };
+    }
+
+    // 屏幕坐标转世界坐标
+    screenToWorld(screenX, screenY, camera) {
+        const worldBounds = this.getWorldBounds(camera);
+        return {
+            x: worldBounds.left + (screenX / this.canvasWidth) * (worldBounds.right - worldBounds.left),
+            y: worldBounds.top - (screenY / this.canvasHeight) * (worldBounds.top - worldBounds.bottom)
+        };
+    }
+
+    // 世界坐标转屏幕坐标
+    worldToScreen(worldX, worldY, camera) {
+        const worldBounds = this.getWorldBounds(camera);
+        return {
+            x: ((worldX - worldBounds.left) / (worldBounds.right - worldBounds.left)) * this.canvasWidth,
+            y: (1 - (worldY - worldBounds.bottom) / (worldBounds.top - worldBounds.bottom)) * this.canvasHeight
+        };
+    }
+
+    // 适应数据边界
+    fitToData(dataBounds, camera, padding = 0.1) {
+        const dataWidth = dataBounds.right - dataBounds.left;
+        const dataHeight = dataBounds.top - dataBounds.bottom;
+
+        // 处理零尺寸情况
+        const safeWidth = Math.max(dataWidth, 1);
+        const safeHeight = Math.max(dataHeight, 1);
+
+        const centerX = (dataBounds.left + dataBounds.right) / 2;
+        const centerY = (dataBounds.bottom + dataBounds.top) / 2;
+
+        const paddedWidth = safeWidth * (1 + padding);
+        const paddedHeight = safeHeight * (1 + padding);
+
+        // 根据画布宽高比调整
+        let viewWidth, viewHeight;
+        if (this.canvasAspect > paddedWidth / paddedHeight) {
+            viewHeight = paddedHeight;
+            viewWidth = viewHeight * this.canvasAspect;
+        } else {
+            viewWidth = paddedWidth;
+            viewHeight = viewWidth / this.canvasAspect;
+        }
+
+        // [关键修改] 直接设置摄像机参数
+        camera.left = centerX - viewWidth / 2;
+        camera.right = centerX + viewWidth / 2;
+        camera.bottom = centerY - viewHeight / 2;
+        camera.top = centerY + viewHeight / 2;
+        camera.zoom = 1;
+        camera.updateProjectionMatrix();
+    }
+}
+
+/**
  * 一个辅助类，用于创建和管理一个动态的、自适应的2D网格和坐标轴刻度。
  * 它会根据摄像机的视野动态调整网格密度和刻度标签。
  */
 class DynamicGrid {
-    constructor(scene, camera, canvasContainer, xAxisContainer, yAxisContainer) {
+    constructor(scene, camera, coordinateSystem) {
         this.scene = scene;
         this.camera = camera;
-        this.canvasContainer = canvasContainer;
-        this.xAxisContainer = xAxisContainer; // 用于放置X轴刻度的DOM元素
-        this.yAxisContainer = yAxisContainer; // 用于放置Y轴刻度的DOM元素
+        this.coordinateSystem = coordinateSystem;
 
-        // 使用LineSegments来高效绘制网格线
-        const material = new THREE.LineBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.5 });
+        // 网格材质
+        const material = new THREE.LineBasicMaterial({
+            color: 0xcccccc,
+            transparent: true,
+            opacity: 0.5
+        });
+
+        // 网格几何体
         const geometry = new THREE.BufferGeometry();
         this.gridLines = new THREE.LineSegments(geometry, material);
-        this.gridLines.frustumCulled = false; // 确保网格不会被意外裁剪
+        this.gridLines.frustumCulled = false;
         this.scene.add(this.gridLines);
 
-        // 用于管理刻度标签的DOM元素
+        // 刻度标签管理
         this.xLabels = [];
         this.yLabels = [];
+
+        this.xAxisContainer = coordinateSystem.canvasContainer.parentElement.querySelector('#x-axis-container');
+        this.yAxisContainer = coordinateSystem.canvasContainer.parentElement.querySelector('#y-axis-container');
     }
 
-    /**
-     * 计算一个合适的、易于阅读的网格间距。
-     * 例如，返回 0.1, 0.5, 1, 5, 10 等。
-     * @param {number} range 视野范围的宽度或高度
-     */
-    calculateNiceInterval(range) {
-        const exponent = Math.floor(Math.log10(range));
-        const powerOfTen = Math.pow(10, exponent);
-        const relativeRange = range / powerOfTen; // 范围在 1 到 10 之间
-
-        if (relativeRange < 2) return powerOfTen * 0.2;
-        if (relativeRange < 5) return powerOfTen * 0.5;
-        return powerOfTen * 1;
-    }
-
-    /**
-     * 核心更新函数，在每一帧被调用。
-     */
     update() {
-        // 根据摄像机的position和zoom计算当前的实际视图边界
-        const zoom = this.camera.zoom;
-        const position = this.camera.position;
-
-        // 计算基于当前zoom和position的有效视图尺寸
-        const viewWidth = (this.camera.right - this.camera.left) / zoom;
-        const viewHeight = (this.camera.top - this.camera.bottom) / zoom;
-
-        // 计算当前的实际边界
-        const effectiveLeft = position.x - viewWidth / 2;
-        const effectiveRight = position.x + viewWidth / 2;
-        const effectiveBottom = position.y - viewHeight / 2;
-        const effectiveTop = position.y + viewHeight / 2;
+        // [关键修改] 直接从摄像机获取世界边界
+        const worldBounds = this.coordinateSystem.getWorldBounds(this.camera);
+        const viewWidth = worldBounds.right - worldBounds.left;
+        const viewHeight = worldBounds.top - worldBounds.bottom;
 
         const xInterval = this.calculateNiceInterval(viewWidth);
         const yInterval = this.calculateNiceInterval(viewHeight);
 
-        // 扩展网格生成范围，确保覆盖整个可见区域
-        const paddingFactor = 0.2;
-        const extendedLeft = effectiveLeft - viewWidth * paddingFactor;
-        const extendedRight = effectiveRight + viewWidth * paddingFactor;
-        const extendedBottom = effectiveBottom - viewHeight * paddingFactor;
-        const extendedTop = effectiveTop + viewHeight * paddingFactor;
+        // 扩展网格范围确保充满整个视图
+        const padding = 1.0;
+        const extendedLeft = worldBounds.left - viewWidth * padding;
+        const extendedRight = worldBounds.right + viewWidth * padding;
+        const extendedBottom = worldBounds.bottom - viewHeight * padding;
+        const extendedTop = worldBounds.top + viewHeight * padding;
 
         const vertices = [];
         const newXLabels = [];
         const newYLabels = [];
 
-        // --- 更新垂直网格线和X轴刻度 ---
-        // [关键修改] 使用更精确的整数对齐方法
-        const xStart = this.roundToPrecision(Math.floor(extendedLeft / xInterval) * xInterval, 6);
-        const xEnd = this.roundToPrecision(Math.ceil(extendedRight / xInterval) * xInterval, 6);
+        // 生成X轴网格线和刻度
+        const xStart = Math.floor(extendedLeft / xInterval) * xInterval;
+        const xEnd = Math.ceil(extendedRight / xInterval) * xInterval;
 
         for (let x = xStart; x <= xEnd; x += xInterval) {
-            // [关键修改] 对x值进行精度修整，避免浮点数误差
             const preciseX = this.roundToPrecision(x, 6);
 
-            // 只在可见区域内绘制标签
-            if (preciseX >= effectiveLeft && preciseX <= effectiveRight) {
-                newXLabels.push({
-                    value: preciseX,
-                    position: this.worldToScreenX(preciseX, effectiveLeft, effectiveRight)
-                });
-            }
-            // 网格线绘制到扩展边界
+            // 网格线（扩展到完整范围）
             vertices.push(preciseX, extendedBottom, 0, preciseX, extendedTop, 0);
+
+            // 刻度标签（只在可见区域内显示）
+            if (preciseX >= worldBounds.left && preciseX <= worldBounds.right) {
+                const screenPos = this.coordinateSystem.worldToScreen(preciseX, worldBounds.bottom, this.camera);
+                newXLabels.push({ value: preciseX, position: screenPos.x });
+            }
         }
 
-        // --- 更新水平网格线和Y轴刻度 ---
-        // [关键修改] 使用更精确的整数对齐方法
-        const yStart = this.roundToPrecision(Math.floor(extendedBottom / yInterval) * yInterval, 6);
-        const yEnd = this.roundToPrecision(Math.ceil(extendedTop / yInterval) * yInterval, 6);
+        // 生成Y轴网格线和刻度
+        const yStart = Math.floor(extendedBottom / yInterval) * yInterval;
+        const yEnd = Math.ceil(extendedTop / yInterval) * yInterval;
 
         for (let y = yStart; y <= yEnd; y += yInterval) {
-            // [关键修改] 对y值进行精度修整，避免浮点数误差
             const preciseY = this.roundToPrecision(y, 6);
 
-            // 只在可见区域内绘制标签
-            if (preciseY >= effectiveBottom && preciseY <= effectiveTop) {
-                newYLabels.push({
-                    value: preciseY,
-                    position: this.worldToScreenY(preciseY, effectiveBottom, effectiveTop)
-                });
-            }
-            // 网格线绘制到扩展边界
+            // 网格线（扩展到完整范围）
             vertices.push(extendedLeft, preciseY, 0, extendedRight, preciseY, 0);
+
+            // 刻度标签（只在可见区域内显示）
+            if (preciseY >= worldBounds.bottom && preciseY <= worldBounds.top) {
+                const screenPos = this.coordinateSystem.worldToScreen(worldBounds.left, preciseY, this.camera);
+                newYLabels.push({ value: preciseY, position: screenPos.y });
+            }
         }
 
         // 更新网格几何体
         this.gridLines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
         this.gridLines.geometry.attributes.position.needsUpdate = true;
 
-        // 更新DOM刻度标签
-        this.updateLabels(this.xAxisContainer, this.xLabels, newXLabels, 'x');
-        this.updateLabels(this.yAxisContainer, this.yLabels, newYLabels, 'y');
+        // 更新刻度标签
+        this.updateAxisLabels(this.xAxisContainer, this.xLabels, newXLabels, 'x');
+        this.updateAxisLabels(this.yAxisContainer, this.yLabels, newYLabels, 'y');
     }
+
+    calculateNiceInterval(range) {
+        const exponent = Math.floor(Math.log10(range));
+        const powerOfTen = Math.pow(10, exponent);
+        const relativeRange = range / powerOfTen;
+
+        if (relativeRange < 2) return powerOfTen * 0.2;
+        if (relativeRange < 5) return powerOfTen * 0.5;
+        return powerOfTen * 1;
+    }
+
     roundToPrecision(value, precision = 6) {
         const factor = Math.pow(10, precision);
         return Math.round(value * factor) / factor;
     }
-    // [修改] 更新坐标转换方法，接受动态边界参数
-    worldToScreenX(worldX, left, right) {
-        const rect = this.canvasContainer.getBoundingClientRect();
-        const viewWidth = right - left;
-        const preciseWorldX = this.roundToPrecision(worldX, 6);
-        const preciseLeft = this.roundToPrecision(left, 6);
-        return ((preciseWorldX - preciseLeft) / viewWidth) * rect.width;
-    }
 
-    worldToScreenY(worldY, bottom, top) {
-        const rect = this.canvasContainer.getBoundingClientRect();
-        const viewHeight = top - bottom;
-        const preciseWorldY = this.roundToPrecision(worldY, 6);
-        const preciseBottom = this.roundToPrecision(bottom, 6);
-        // Y轴是反向的
-        return (1 - (preciseWorldY - preciseBottom) / viewHeight) * rect.height;
-    }
-
-    // [修改] 更新标签更新方法，传递正确的边界参数
-    updateLabels(container, oldLabels, newLabelsData, axis) {
-        // 移除所有旧标签
+    updateAxisLabels(container, oldLabels, newLabelsData, axis) {
         oldLabels.forEach(label => label.remove());
         oldLabels.length = 0;
 
-        // 创建新标签
-        container.innerHTML = ''; // 清空容器
+        container.innerHTML = '';
         newLabelsData.forEach(data => {
             const label = document.createElement('div');
             label.className = `axis-label-${axis}`;
-            label.innerText = data.value.toPrecision(3);
+            label.innerText = data.value.toFixed(2);
             container.appendChild(label);
+
             if (axis === 'x') {
                 label.style.left = `${data.position}px`;
             } else {
                 label.style.top = `${data.position}px`;
             }
+
             oldLabels.push(label);
         });
     }
 
-    // 销毁时清理资源
-    destroy() {
-        this.scene.remove(this.gridLines);
-        this.gridLines.geometry.dispose();
-        this.gridLines.material.dispose();
-        this.updateLabels(this.xAxisContainer, this.xLabels, [], 'x');
-        this.updateLabels(this.yAxisContainer, this.yLabels, [], 'y');
+    forceUpdate() {
+        this.update();
     }
 }
 /**
@@ -387,21 +432,23 @@ class Plotter2D extends BasePlotter {
         this.legendContainer = container.querySelector('#legend-container');
         this.legendElements = new Map();
 
+        // 统一的坐标系统
+        this.coordinateSystem = new CoordinateSystem(this.canvasContainer);
         // Three.js 场景设置
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0xffffff);
 
-        const rect = this.canvasContainer.getBoundingClientRect();
-        this.camera = new THREE.OrthographicCamera(rect.width / -2, rect.width / 2, rect.height / 2, rect.height / -2, -10, 10);
+        // [修改] 使用坐标系统初始化正交相机
+        this.camera = new THREE.OrthographicCamera(-10, 10, 10, -10, -10, 10);
 
         this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        this.renderer.setSize(rect.width, rect.height);
+        this.renderer.setSize(this.coordinateSystem.canvasWidth, this.coordinateSystem.canvasHeight);
         this.canvasContainer.appendChild(this.renderer.domElement);
 
         // this.gridHelper = new THREE.GridHelper(10, 10);
         // this.gridHelper.rotation.x = Math.PI / 2;
         // this.scene.add(this.gridHelper);
-        this.dynamicGrid = new DynamicGrid(this.scene, this.camera, this.canvasContainer, this.xAxisContainer, this.yAxisContainer);
+        this.dynamicGrid = new DynamicGrid(this.scene, this.camera, this.coordinateSystem);
 
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableRotate = false;
@@ -419,7 +466,6 @@ class Plotter2D extends BasePlotter {
     animate = () => {
         this.animationFrameId = requestAnimationFrame(this.animate);
 
-        // 如果开启了动态适应，则在每一帧都重新计算并设置视角
         if (this.isDynamicFitEnabled) {
             this.controls.reset();
             this.fitViewToData();
@@ -428,7 +474,7 @@ class Plotter2D extends BasePlotter {
         this.controls.update();
         this.dynamicGrid.update();
         this.renderer.render(this.scene, this.camera);
-    }
+    };
 
     // 处理动态适应开关变化的事件
     onDynamicFitChange = (event) => {
@@ -442,48 +488,30 @@ class Plotter2D extends BasePlotter {
 
         const sceneBBox = new THREE.Box3();
         sceneBBox.makeEmpty();
-
         this.sceneObjects.forEach(obj => {
             sceneBBox.expandByObject(obj);
         });
 
         if (sceneBBox.isEmpty()) return;
 
-        const center = new THREE.Vector3();
-        sceneBBox.getCenter(center);
+        const dataBounds = {
+            left: sceneBBox.min.x,
+            right: sceneBBox.max.x,
+            bottom: sceneBBox.min.y,
+            top: sceneBBox.max.y
+        };
 
-        const size = new THREE.Vector3();
-        sceneBBox.getSize(size);
+        // 直接使用坐标系统的方法
+        this.coordinateSystem.fitToData(dataBounds, this.camera, padding);
 
-        // 健壮性增强：处理边界框宽高为0的情况 (例如只有一个点)
-        if (size.x < 1e-6) size.x = 1;
-        if (size.y < 1e-6) size.y = 1;
-        const paddedWidth = size.x * (1 + padding);
-        const paddedHeight = size.y * (1 + padding);
-
-        const rect = this.canvasContainer.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) return;
-
-        const canvasAspect = rect.width / rect.height;
-        const dataAspect = paddedWidth / paddedHeight;
-
-        let viewWidth, viewHeight;
-
-        if (canvasAspect > dataAspect) {
-            viewHeight = paddedHeight;
-            viewWidth = viewHeight * canvasAspect;
-        } else {
-            viewWidth = paddedWidth;
-            viewHeight = viewWidth / canvasAspect;
-        }
-
-        this.camera.left = center.x - viewWidth / 2;
-        this.camera.right = center.x + viewWidth / 2;
-        this.camera.top = center.y + viewHeight / 2;
-        this.camera.bottom = center.y - viewHeight / 2;
-
-        this.camera.zoom = 1;
-        this.camera.updateProjectionMatrix();
+        // 重置控制器目标到中心
+        const worldBounds = this.coordinateSystem.getWorldBounds(this.camera);
+        // this.controls.target.set(
+        //     (worldBounds.left + worldBounds.right) / 2,
+        //     (worldBounds.bottom + worldBounds.top) / 2,
+        //     0
+        // );
+        this.controls.reset();
     };
 
     resetView = () => {
@@ -491,6 +519,7 @@ class Plotter2D extends BasePlotter {
         this.fitViewToData();
     };
 
+    // 更新鼠标移动事件处理
     onMouseMove = (event) => {
         const rect = this.canvasContainer.getBoundingClientRect();
         const mouseX = event.clientX - rect.left;
@@ -499,13 +528,13 @@ class Plotter2D extends BasePlotter {
         this.crosshairX.style.top = `${mouseY}px`;
         this.crosshairY.style.left = `${mouseX}px`;
 
-        const worldX = this.camera.left + (this.camera.right - this.camera.left) * (mouseX / rect.width);
-        const worldY = this.camera.top - (this.camera.top - this.camera.bottom) * (mouseY / rect.height);
+        // 传递摄像机参数
+        const worldCoords = this.coordinateSystem.screenToWorld(mouseX, mouseY, this.camera);
 
         this.tooltipEl.style.display = 'block';
         this.tooltipEl.style.left = `${mouseX + 15}px`;
         this.tooltipEl.style.top = `${mouseY + 15}px`;
-        this.tooltipEl.innerText = `X: ${worldX.toFixed(2)}, Y: ${worldY.toFixed(2)}`;
+        this.tooltipEl.innerText = `X: ${worldCoords.x.toFixed(2)}, Y: ${worldCoords.y.toFixed(2)}`;
     };
 
     onMouseLeave = () => {
@@ -515,22 +544,16 @@ class Plotter2D extends BasePlotter {
     };
 
     onWindowResize = () => {
-        const rect = this.canvasContainer.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) return;
+        // 更新坐标系统的画布尺寸
+        this.coordinateSystem.updateCanvasSize();
 
-        // 保持当前的视图中心和视图高度，只根据新的宽高比调整视图宽度
-        const center = this.controls.target.clone();
-        const viewHeight = this.camera.top - this.camera.bottom;
-        const newAspect = rect.width / rect.height;
-        const newViewWidth = viewHeight * newAspect;
-
-        this.camera.left = center.x - newViewWidth / 2;
-        this.camera.right = center.x + newViewWidth / 2;
-        this.camera.top = center.y + viewHeight / 2;
-        this.camera.bottom = center.y - viewHeight / 2;
-
-        this.renderer.setSize(rect.width, rect.height);
-        this.camera.updateProjectionMatrix();
+        if (this.isDynamicFitEnabled) {
+            this.fitViewToData();
+        } else {
+            // 保持当前视图，只更新渲染器尺寸
+            this.renderer.setSize(this.coordinateSystem.canvasWidth, this.coordinateSystem.canvasHeight);
+            this.camera.updateProjectionMatrix();
+        }
     };
 
     dispatch(command) {
@@ -571,11 +594,21 @@ class Plotter2D extends BasePlotter {
                 this.dynamicFitToggle.checked = false;
                 this.isDynamicFitEnabled = false;
                 this.controls.enabled = true;
+                // [关键修改] 直接设置摄像机边界
                 this.camera.left = props.getXMin();
                 this.camera.right = props.getXMax();
                 this.camera.bottom = props.getYMin();
                 this.camera.top = props.getYMax();
+                this.camera.zoom = 1;
                 this.camera.updateProjectionMatrix();
+
+                // 重置控制器目标
+                // this.controls.target.set(
+                //     (props.getXMin() + props.getXMax()) / 2,
+                //     (props.getYMin() + props.getYMax()) / 2,
+                //     0
+                // );
+                this.controls.reset();
                 break;
             }
             case proto.visualization.Command2D.CommandTypeCase.SET_TITLE:
