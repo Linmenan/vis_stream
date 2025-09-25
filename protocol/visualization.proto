@@ -73,6 +73,13 @@ message Material {
   bool filled = 5; // 用于2D形状，是否填充
   ColorRGBA fill_color = 6;
   bool legend_on = 7; // 用于是否显示图例
+                      // 新增一个枚举来定义线型
+  enum LineStyle {
+    SOLID = 0;
+    DASHED = 1;
+    DOTTED = 2;
+  }
+  LineStyle line_style = 8; // 新增字段
 }
 
 // --- 核心指令 ---

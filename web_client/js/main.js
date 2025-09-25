@@ -40,6 +40,7 @@ class AppManager {
                             <div id="crosshair-y" class="crosshair"></div>
                             <div id="coord-tooltip" class="coord-tooltip"></div>
                         </div>
+                        <div id="legend-container" class="legend-container"></div>
                         <div id="x-axis-label" class="x-axis-label">X-Axis</div>
                     </div>
                     <div id="toolbar" class="toolbar">
@@ -202,6 +203,8 @@ class Plotter2D extends BasePlotter {
         this.tooltipEl = container.querySelector('#coord-tooltip');
         this.crosshairX = container.querySelector('#crosshair-x');
         this.crosshairY = container.querySelector('#crosshair-y');
+        this.legendContainer = container.querySelector('#legend-container');
+        this.legendElements = new Map();
 
         // Three.js 场景设置
         this.scene = new THREE.Scene();
@@ -357,6 +360,7 @@ class Plotter2D extends BasePlotter {
                     obj.name = cmd.getId();
                     this.sceneObjects.set(cmd.getId(), obj);
                     this.scene.add(obj);
+                    this.updateLegend(cmd.getId(), cmd.getMaterial());
                 }
                 break;
             }
@@ -368,7 +372,9 @@ class Plotter2D extends BasePlotter {
                 break;
             }
             case proto.visualization.Command2D.CommandTypeCase.DELETE_OBJECT:
-                this.removeObject(command.getDeleteObject().getId());
+                const id_to_delete = command.getDeleteObject().getId();
+                this.removeObject(id_to_delete);
+                this.updateLegend(id_to_delete, null);
                 break;
             case proto.visualization.Command2D.CommandTypeCase.SET_GRID_VISIBLE:
                 this.gridHelper.visible = command.getSetGridVisible().getVisible();
@@ -400,6 +406,34 @@ class Plotter2D extends BasePlotter {
         // [修正] 关键修复：无论之前状态如何，断开连接时必须重新启用用户控制器
         this.isDynamicFitEnabled = false;
         this.controls.enabled = true;
+    }
+    updateLegend(id, material) {
+        if (!material) { // Corresponds to object deletion
+            if (this.legendElements.has(id)) {
+                this.legendElements.get(id).remove();
+                this.legendElements.delete(id);
+            }
+            return;
+        }
+
+        const legendText = material.getLegend();
+        if (!legendText) return;
+
+        let legendItem = this.legendElements.get(id);
+        if (!legendItem) {
+            legendItem = document.createElement('div');
+            legendItem.className = 'legend-item';
+            this.legendContainer.appendChild(legendItem);
+            this.legendElements.set(id, legendItem);
+        }
+
+        const color = material.getColor();
+        const colorHex = new THREE.Color(color.getR(), color.getG(), color.getB()).getHexString();
+
+        legendItem.innerHTML = `
+            <span class="legend-color-swatch" style="background-color: #${colorHex};"></span>
+            <span class="legend-label">${legendText}</span>
+        `;
     }
 }
 
@@ -522,6 +556,9 @@ class ObjectFactory {
                 const points = geom.getPointsList().map(p => new THREE.Vector3(p.getPosition().getX(), p.getPosition().getY(), 0));
                 obj.geometry.dispose(); // Dispose old geometry
                 obj.geometry = new THREE.BufferGeometry().setFromPoints(points);
+                if (obj.material.isLineDashedMaterial) {
+                    obj.computeLineDistances();
+                }
                 break;
             }
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.POLYGON: {
@@ -568,7 +605,52 @@ class ObjectFactory {
     }
 
     // --- Helper Methods ---
-    create2DPlaceholder(cmd) { const data = cmd.getGeometryDataCase(); const mat = cmd.getMaterial(); let obj; switch (data) { case proto.visualization.Add2DObject.GeometryDataCase.POINT_2D: { const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3)); const color = mat.getColor(); const material = new THREE.PointsMaterial({ color: new THREE.Color(color.getR(), color.getG(), color.getB()), size: mat.getPointSize() || 10.0, sizeAttenuation: false }); obj = new THREE.Points(geometry, material); break; } case proto.visualization.Add2DObject.GeometryDataCase.POSE_2D: { const color = mat.getColor(); const colorHex = new THREE.Color(color.getR(), color.getG(), color.getB()).getHex(); const group = new THREE.Group(); const arrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 0), 0.25, colorHex, 0.1, 0.08); const pointGeom = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3)); const pointMat = new THREE.PointsMaterial({ color: colorHex, size: mat.getPointSize() || 6.0, sizeAttenuation: false }); const point = new THREE.Points(pointGeom, pointMat); group.add(arrow, point); obj = group; break; } default: { const geometry = new THREE.BufferGeometry(); const color = mat.getColor(); const materialArgs = { color: new THREE.Color(color.getR(), color.getG(), color.getB()), side: THREE.DoubleSide }; if (mat.getFilled()) { const fillColor = mat.getFillColor(); materialArgs.opacity = fillColor.getA(); materialArgs.transparent = fillColor.getA() < 1.0; } const material = mat.getFilled() ? new THREE.MeshBasicMaterial(materialArgs) : new THREE.LineBasicMaterial(materialArgs); obj = mat.getFilled() ? new THREE.Mesh(geometry, material) : new THREE.LineLoop(geometry, material); break; } } return obj; }
+    create2DPlaceholder(cmd) {
+        const data = cmd.getGeometryDataCase();
+        const mat = cmd.getMaterial();
+        let obj;
+        switch (data) {
+            case proto.visualization.Add2DObject.GeometryDataCase.POINT_2D: { const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3)); const color = mat.getColor(); const material = new THREE.PointsMaterial({ color: new THREE.Color(color.getR(), color.getG(), color.getB()), size: mat.getPointSize() || 10.0, sizeAttenuation: false }); obj = new THREE.Points(geometry, material); break; }
+            case proto.visualization.Add2DObject.GeometryDataCase.POSE_2D: { const color = mat.getColor(); const colorHex = new THREE.Color(color.getR(), color.getG(), color.getB()).getHex(); const group = new THREE.Group(); const arrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 0), 0.25, colorHex, 0.1, 0.08); const pointGeom = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3)); const pointMat = new THREE.PointsMaterial({ color: colorHex, size: mat.getPointSize() || 6.0, sizeAttenuation: false }); const point = new THREE.Points(pointGeom, pointMat); group.add(arrow, point); obj = group; break; }
+            // [修正] 为 Line2D 单独创建一个 case，确保它使用 THREE.Line
+            case proto.visualization.Add2DObject.GeometryDataCase.LINE_2D: {
+                const geometry = new THREE.BufferGeometry();
+                const material = this.createLineMaterial(mat);
+                obj = new THREE.Line(geometry, material);
+                break;
+            }
+            default: { // Polygon, Circle, Box2D fall here
+                const geometry = new THREE.BufferGeometry();
+                const color = mat.getColor();
+                const materialArgs = { color: new THREE.Color(color.getR(), color.getG(), color.getB()), side: THREE.DoubleSide };
+                if (mat.getFilled()) {
+                    const fillColor = mat.getFillColor();
+                    materialArgs.opacity = fillColor.getA();
+                    materialArgs.transparent = fillColor.getA() < 1.0;
+                }
+                const material = mat.getFilled() ? new THREE.MeshBasicMaterial(materialArgs) : new THREE.LineBasicMaterial(materialArgs);
+                obj = mat.getFilled() ? new THREE.Mesh(geometry, material) : new THREE.LineLoop(geometry, material);
+                break;
+            }
+        }
+        return obj;
+    }
+    // 创建线材质的辅助函数，用于处理不同线型
+    createLineMaterial(mat) {
+        const color = mat.getColor();
+        const lineStyle = mat.getLineStyle();
+        const materialArgs = {
+            color: new THREE.Color(color.getR(), color.getG(), color.getB()),
+            linewidth: mat.getLineWidth() || 1 // Note: linewidth has no effect in modern THREE.js
+        };
+
+        if (lineStyle === proto.visualization.Material.LineStyle.DASHED) {
+            materialArgs.dashSize = 0.1;
+            materialArgs.gapSize = 0.05;
+            return new THREE.LineDashedMaterial(materialArgs);
+        }
+        return new THREE.LineBasicMaterial(materialArgs);
+    }
     packageAsUpdateCmd(addCmd) { const updateCmd = new proto.visualization.Update2DObjectGeometry(); const data = addCmd.getGeometryDataCase(); updateCmd.setId(addCmd.getId()); if (data === proto.visualization.Add2DObject.GeometryDataCase.POINT_2D) updateCmd.setPoint2d(addCmd.getPoint2d()); else if (data === proto.visualization.Add2DObject.GeometryDataCase.POSE_2D) updateCmd.setPose2d(addCmd.getPose2d()); else if (data === proto.visualization.Add2DObject.GeometryDataCase.LINE_2D) updateCmd.setLine2d(addCmd.getLine2d()); else if (data === proto.visualization.Add2DObject.GeometryDataCase.POLYGON) updateCmd.setPolygon(addCmd.getPolygon()); else if (data === proto.visualization.Add2DObject.GeometryDataCase.CIRCLE) updateCmd.setCircle(addCmd.getCircle()); else if (data === proto.visualization.Add2DObject.GeometryDataCase.BOX_2D) updateCmd.setBox2d(addCmd.getBox2d()); return updateCmd; }
 
     updatePose(obj, poseProto) {

@@ -20,6 +20,7 @@ goog.provide('proto.visualization.Command3D');
 goog.provide('proto.visualization.DeleteObject');
 goog.provide('proto.visualization.Line2D');
 goog.provide('proto.visualization.Material');
+goog.provide('proto.visualization.Material.LineStyle');
 goog.provide('proto.visualization.Point2D');
 goog.provide('proto.visualization.Point3D');
 goog.provide('proto.visualization.Polygon');
@@ -3141,7 +3142,8 @@ proto.visualization.Material.toObject = function(includeInstance, msg) {
     lineWidth: +jspb.Message.getFieldWithDefault(msg, 4, 0.0),
     filled: jspb.Message.getFieldWithDefault(msg, 5, false),
     fillColor: (f = msg.getFillColor()) && proto.visualization.ColorRGBA.toObject(includeInstance, f),
-    legendOn: jspb.Message.getFieldWithDefault(msg, 7, false)
+    legendOn: jspb.Message.getFieldWithDefault(msg, 7, false),
+    lineStyle: jspb.Message.getFieldWithDefault(msg, 8, 0)
   };
 
   if (includeInstance) {
@@ -3207,6 +3209,10 @@ proto.visualization.Material.deserializeBinaryFromReader = function(msg, reader)
     case 7:
       var value = /** @type {boolean} */ (reader.readBool());
       msg.setLegendOn(value);
+      break;
+    case 8:
+      var value = /** @type {!proto.visualization.Material.LineStyle} */ (reader.readEnum());
+      msg.setLineStyle(value);
       break;
     default:
       reader.skipField();
@@ -3288,8 +3294,24 @@ proto.visualization.Material.serializeBinaryToWriter = function(message, writer)
       f
     );
   }
+  f = message.getLineStyle();
+  if (f !== 0.0) {
+    writer.writeEnum(
+      8,
+      f
+    );
+  }
 };
 
+
+/**
+ * @enum {number}
+ */
+proto.visualization.Material.LineStyle = {
+  SOLID: 0,
+  DASHED: 1,
+  DOTTED: 2
+};
 
 /**
  * optional string legend = 1;
@@ -3427,6 +3449,21 @@ proto.visualization.Material.prototype.getLegendOn = function() {
 /** @param {boolean} value */
 proto.visualization.Material.prototype.setLegendOn = function(value) {
   jspb.Message.setProto3BooleanField(this, 7, value);
+};
+
+
+/**
+ * optional LineStyle line_style = 8;
+ * @return {!proto.visualization.Material.LineStyle}
+ */
+proto.visualization.Material.prototype.getLineStyle = function() {
+  return /** @type {!proto.visualization.Material.LineStyle} */ (jspb.Message.getFieldWithDefault(this, 8, 0));
+};
+
+
+/** @param {!proto.visualization.Material.LineStyle} value */
+proto.visualization.Material.prototype.setLineStyle = function(value) {
+  jspb.Message.setProto3EnumField(this, 8, value);
 };
 
 
