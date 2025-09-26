@@ -201,9 +201,6 @@ class CoordinateSystem {
         this.canvasContainer = canvasContainer;
         this.updateCanvasSize();
         this.debugCount = 0; // 添加调试计数器
-        // 添加精度控制参数
-        this.precisionThreshold = 1e-10; // 精度阈值
-        this.maxRange = 1e6; // 最大有效范围
     }
 
     updateCanvasSize() {
@@ -213,38 +210,43 @@ class CoordinateSystem {
         this.canvasAspect = this.canvasWidth / this.canvasHeight;
     }
 
-    // [关键修改] 直接从摄像机获取世界边界
+    // 获取世界边界（基于正交相机原理）
     getWorldBounds(camera, controls = null) {
-        // 更安全的边界计算
-        const zoom = camera.zoom || 1;
-
-        // 更严格的数值验证
-        if (zoom <= 0 || !isFinite(zoom) || zoom > 1000) {
-            console.warn('Invalid camera zoom, resetting to default:', zoom);
+        if (!camera.isOrthographicCamera) {
             return this.getDefaultBounds();
         }
 
-        const zoomFactor = 1 / this.clampValue(zoom, 0.001, 1000);
-
-        // 验证摄像机边界有效性
-        if (!this.areValidCameraBounds(camera)) {
-            console.warn('Invalid camera bounds, using defaults');
+        const zoom = camera.zoom;
+        if (zoom <= 0 || !isFinite(zoom)) {
             return this.getDefaultBounds();
         }
 
-        // 计算基础边界（应用精度控制）
-        const baseBounds = {
-            left: this.applyPrecision(camera.left * zoomFactor),
-            right: this.applyPrecision(camera.right * zoomFactor),
-            bottom: this.applyPrecision(camera.bottom * zoomFactor),
-            top: this.applyPrecision(camera.top * zoomFactor)
+        // 计算缩放后的相机边界
+        const scaledLeft = camera.left / zoom;
+        const scaledRight = camera.right / zoom;
+        const scaledBottom = camera.bottom / zoom;
+        const scaledTop = camera.top / zoom;
+
+        // 应用目标点偏移
+        let targetX = 0, targetY = 0;
+        if (controls && controls.target) {
+            targetX = controls.target.x;
+            targetY = controls.target.y;
+        }
+
+        const bounds = {
+            left: scaledLeft + targetX,
+            right: scaledRight + targetX,
+            bottom: scaledBottom + targetY,
+            top: scaledTop + targetY
         };
 
-        // 应用目标点偏移（如果有控制器）
-        let finalBounds = this.applyTargetOffset(baseBounds, controls);
-
-        // 最终验证和修正
-        return this.validateAndFixBounds(finalBounds);
+        return this.validateAndFixBounds(bounds);
+    }
+    validateBounds(bounds) {
+        return isFinite(bounds.left) && isFinite(bounds.right) &&
+            isFinite(bounds.bottom) && isFinite(bounds.top) &&
+            bounds.right > bounds.left && bounds.top > bounds.bottom;
     }
     // 数值精度控制方法
     applyPrecision(value) {
@@ -301,9 +303,13 @@ class CoordinateSystem {
     // 屏幕坐标转世界坐标
     screenToWorld(screenX, screenY, camera, controls = null) {
         const worldBounds = this.getWorldBounds(camera, controls);
+        // 归一化屏幕坐标 (0到1)
+        const normalizedX = screenX / this.canvasWidth;
+        const normalizedY = 1 - (screenY / this.canvasHeight); // Y轴翻转
+
         return {
-            x: worldBounds.left + (screenX / this.canvasWidth) * (worldBounds.right - worldBounds.left),
-            y: worldBounds.top - (screenY / this.canvasHeight) * (worldBounds.top - worldBounds.bottom)
+            x: worldBounds.left + normalizedX * (worldBounds.right - worldBounds.left),
+            y: worldBounds.bottom + normalizedY * (worldBounds.top - worldBounds.bottom)
         };
     }
 
@@ -311,64 +317,136 @@ class CoordinateSystem {
     worldToScreen(worldX, worldY, camera, controls = null) {
         const worldBounds = this.getWorldBounds(camera, controls);
 
-        const screenX = ((worldX - worldBounds.left) / (worldBounds.right - worldBounds.left)) * this.canvasWidth;
-        const screenY = (1 - (worldY - worldBounds.bottom) / (worldBounds.top - worldBounds.bottom)) * this.canvasHeight;
-
-        // [调试] 添加转换信息
-        if (this.debugCount < 10) { // 只打印前10次调试信息
-            console.log(`坐标转换: 世界(${worldX.toFixed(2)}, ${worldY.toFixed(2)}) -> 屏幕(${screenX.toFixed(1)}, ${screenY.toFixed(1)})`);
-            console.log(`  世界边界: [${worldBounds.left.toFixed(2)}, ${worldBounds.right.toFixed(2)}] x [${worldBounds.bottom.toFixed(2)}, ${worldBounds.top.toFixed(2)}]`);
-            this.debugCount++;
-        }
+        // 归一化世界坐标
+        const normalizedX = (worldX - worldBounds.left) / (worldBounds.right - worldBounds.left);
+        const normalizedY = (worldY - worldBounds.bottom) / (worldBounds.top - worldBounds.bottom);
 
         return {
-            x: screenX,
-            y: screenY
+            x: normalizedX * this.canvasWidth,
+            y: (1 - normalizedY) * this.canvasHeight // Y轴翻转
         };
     }
 
     // 适应数据边界
-    fitToData(dataBounds, camera, padding = 0.1) {
+    fitToData(dataBounds, camera, controls = null, padding = 0.1) {
+        console.log('🔧 开始适应数据:', dataBounds);
+
+        // 验证数据边界
+        if (!this.validateDataBounds(dataBounds)) {
+            console.warn('无效的数据边界，使用默认视图');
+            return this.resetToDefault(camera, controls);
+        }
+
+        // 计算数据尺寸和中心
         const dataWidth = dataBounds.right - dataBounds.left;
         const dataHeight = dataBounds.top - dataBounds.bottom;
-
-        // 处理零尺寸情况
-        const safeWidth = Math.max(dataWidth, 0.1);  // 避免除零
-        const safeHeight = Math.max(dataHeight, 0.1);
 
         const centerX = (dataBounds.left + dataBounds.right) / 2;
         const centerY = (dataBounds.bottom + dataBounds.top) / 2;
 
-        const paddedWidth = safeWidth * (1 + padding);
-        const paddedHeight = safeHeight * (1 + padding);
+        // 处理极小尺寸情况
+        const minSize = 0.1;
+        const effectiveWidth = Math.max(dataWidth, minSize);
+        const effectiveHeight = Math.max(dataHeight, minSize);
 
-        // 根据画布宽高比调整
+        // 添加填充
+        const paddedWidth = effectiveWidth * (1 + padding);
+        const paddedHeight = effectiveHeight * (1 + padding);
+
+        // [关键修复] 根据画布宽高比计算视图尺寸
         let viewWidth, viewHeight;
-        if (this.canvasAspect > paddedWidth / paddedHeight) {
-            viewHeight = paddedHeight;
-            viewWidth = viewHeight * this.canvasAspect;
-        } else {
+        if (paddedWidth / paddedHeight > this.canvasAspect) {
+            // 数据更宽，以宽度为准
             viewWidth = paddedWidth;
             viewHeight = viewWidth / this.canvasAspect;
+        } else {
+            // 数据更高，以高度为准
+            viewHeight = paddedHeight;
+            viewWidth = viewHeight * this.canvasAspect;
         }
 
-        // [关键修复] 直接设置摄像机边界，以数据中心为中心
-        camera.left = centerX - viewWidth / 2;
-        camera.right = centerX + viewWidth / 2;
-        camera.bottom = centerY - viewHeight / 2;
-        camera.top = centerY + viewHeight / 2;
+        // [关键修复] 设置正交相机参数
+        // 正交相机的left/right/bottom/top是相对于相机位置的
+        const halfWidth = viewWidth / 2;
+        const halfHeight = viewHeight / 2;
 
-        // 重置zoom为1，确保边界计算正确
-        camera.zoom = 1;
+        // 保存当前状态用于调试
+        const previousState = {
+            left: camera.left, right: camera.right,
+            bottom: camera.bottom, top: camera.top,
+            zoom: camera.zoom,
+            target: controls ? controls.target.clone() : null
+        };
 
-        // 更新摄像机
+        // [关键修复] 设置相机参数 - 这是最重要的部分！
+        camera.left = -halfWidth;
+        camera.right = halfWidth;
+        camera.bottom = -halfHeight;
+        camera.top = halfHeight;
+        camera.near = 0.1;
+        camera.far = 1000;
+        camera.zoom = 1; // 必须重置zoom
+
+        // 更新相机位置和目标点
+        camera.position.set(centerX, centerY, 10); // Z位置不影响2D正交视图
+        camera.lookAt(centerX, centerY, 0);
+
+        // [关键修复] 必须调用此方法使参数生效
         camera.updateProjectionMatrix();
 
-        console.log(`程序化适应: 中心(${centerX.toFixed(2)}, ${centerY.toFixed(2)}), 范围${viewWidth.toFixed(2)}x${viewHeight.toFixed(2)}`);
+        // [关键修复] 同步OrbitControls
+        if (controls) {
+            controls.target.set(centerX, centerY, 0);
+            controls.update();
+        }
+
+        console.log('✅ 适应完成:', {
+            数据中心: `(${centerX.toFixed(2)}, ${centerY.toFixed(2)})`,
+            视图尺寸: `${viewWidth.toFixed(2)}x${viewHeight.toFixed(2)}`,
+            画布比例: this.canvasAspect.toFixed(3),
+            相机边界: {
+                left: camera.left.toFixed(2), right: camera.right.toFixed(2),
+                bottom: camera.bottom.toFixed(2), top: camera.top.toFixed(2)
+            }
+        });
 
         return {
             centerX, centerY,
             viewWidth, viewHeight
+        };
+    }
+    validateDataBounds(dataBounds) {
+        return dataBounds &&
+            isFinite(dataBounds.left) && isFinite(dataBounds.right) &&
+            isFinite(dataBounds.bottom) && isFinite(dataBounds.top) &&
+            dataBounds.right > dataBounds.left &&
+            dataBounds.top > dataBounds.bottom &&
+            Math.abs(dataBounds.right - dataBounds.left) < 1e6 &&
+            Math.abs(dataBounds.top - dataBounds.bottom) < 1e6;
+    }
+    // [新增] 重置到默认视图的方法
+    resetToDefault(camera, controls = null) {
+        console.log('🔄 重置到默认视图');
+
+        // 使用对称的默认视图
+        const defaultSize = 10;
+        camera.left = -defaultSize;
+        camera.right = defaultSize;
+        camera.bottom = -defaultSize;
+        camera.top = defaultSize;
+        camera.zoom = 1;
+        camera.position.set(0, 0, 10);
+
+        camera.updateProjectionMatrix();
+
+        if (controls) {
+            controls.target.set(0, 0, 0);
+            controls.update();
+        }
+
+        return {
+            centerX: 0, centerY: 0,
+            viewWidth: defaultSize * 2, viewHeight: defaultSize * 2
         };
     }
 }
@@ -406,93 +484,111 @@ class DynamicGrid {
     }
 
     update() {
-        // [关键修复] 传递controls参数以获取正确的世界边界
-        const worldBounds = this.coordinateSystem.getWorldBounds(this.camera, this.controls);
-        const viewWidth = worldBounds.right - worldBounds.left;
-        const viewHeight = worldBounds.top - worldBounds.bottom;
-
-        // [关键修复] 改进的网格范围计算，确保完全覆盖
-        const paddingFactor = this.calculateDynamicPadding(viewWidth, viewHeight);
-        const extendedLeft = worldBounds.left - viewWidth * paddingFactor;
-        const extendedRight = worldBounds.right + viewWidth * paddingFactor;
-        const extendedBottom = worldBounds.bottom - viewHeight * paddingFactor;
-        const extendedTop = worldBounds.top + viewHeight * paddingFactor;
-
-        const xInterval = this.calculateNiceInterval(viewWidth);
-        const yInterval = this.calculateNiceInterval(viewHeight);
-
-        const vertices = [];
-        const newXLabels = [];
-        const newYLabels = [];
-
-        // 生成X轴网格线和刻度
-        const xStart = Math.floor(extendedLeft / xInterval) * xInterval;
-        const xEnd = Math.ceil(extendedRight / xInterval) * xInterval;
-
-        for (let x = xStart; x <= xEnd; x += xInterval) {
-            const preciseX = this.roundToPrecision(x, 8);
-
-            // 网格线（扩展到完整范围）
-            vertices.push(preciseX, extendedBottom, 0, preciseX, extendedTop, 0);
-
-            // 刻度标签（只在可见区域内显示）
-            if (preciseX >= worldBounds.left && preciseX <= worldBounds.right) {
-                const screenPos = this.coordinateSystem.worldToScreen(preciseX, worldBounds.bottom, this.camera, this.controls);
-                newXLabels.push({ value: preciseX, position: screenPos.x });
+        try {
+            const worldBounds = this.coordinateSystem.getWorldBounds(this.camera, this.controls);
+            // [关键修复] 添加边界验证
+            if (!this.validateBounds(worldBounds)) {
+                console.warn('Invalid world bounds, skipping grid update');
+                return;
             }
-        }
-
-        // 生成Y轴网格线和刻度
-        const yStart = Math.floor(extendedBottom / yInterval) * yInterval;
-        const yEnd = Math.ceil(extendedTop / yInterval) * yInterval;
-
-        for (let y = yStart; y <= yEnd; y += yInterval) {
-            const preciseY = this.roundToPrecision(y, 8);
-
-            // 网格线（扩展到完整范围）
-            vertices.push(extendedLeft, preciseY, 0, extendedRight, preciseY, 0);
-
-            // 刻度标签（只在可见区域内显示）
-            if (preciseY >= worldBounds.bottom && preciseY <= worldBounds.top) {
-                const screenPos = this.coordinateSystem.worldToScreen(worldBounds.left, preciseY, this.camera, this.controls);
-                newYLabels.push({ value: preciseY, position: screenPos.y });
+            const viewWidth = worldBounds.right - worldBounds.left;
+            const viewHeight = worldBounds.top - worldBounds.bottom;
+            // 确保视图范围有效
+            if (viewWidth <= 0 || viewHeight <= 0 || !isFinite(viewWidth) || !isFinite(viewHeight)) {
+                console.warn('Invalid view dimensions, skipping grid update');
+                return;
             }
-        }
+            // [关键修复] 动态计算扩展范围，确保完全覆盖
+            const dynamicPadding = this.calculateDynamicPadding(viewWidth, viewHeight);
 
-        // 更新网格几何体
-        this.gridLines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-        this.gridLines.geometry.attributes.position.needsUpdate = true;
+            const extendedBounds = {
+                left: worldBounds.left - viewWidth * dynamicPadding,
+                right: worldBounds.right + viewWidth * dynamicPadding,
+                bottom: worldBounds.bottom - viewHeight * dynamicPadding,
+                top: worldBounds.top + viewHeight * dynamicPadding
+            };
 
-        // 更新刻度标签
-        this.updateAxisLabels(this.xAxisContainer, this.xLabels, newXLabels, 'x');
-        this.updateAxisLabels(this.yAxisContainer, this.yLabels, newYLabels, 'y');
+            const xInterval = this.calculateNiceInterval(viewWidth);
+            const yInterval = this.calculateNiceInterval(viewHeight);
 
-        // [调试] 网格更新信息
-        console.log(`动态网格更新: 网格线${vertices.length / 6}条, X标签${newXLabels.length}个, Y标签${newYLabels.length}个`);
-        // [调试] 显示第一个刻度标签的位置信息
-        if (newXLabels.length > 0) {
-            const firstLabel = newXLabels[0];
-            console.log(`第一个X刻度: 世界坐标=${firstLabel.value.toFixed(2)}, 屏幕位置=${firstLabel.position.toFixed(1)}px`);
+            const vertices = [];
+            const newXLabels = [];
+            const newYLabels = [];
+
+            // 生成X轴网格线
+            const xStart = Math.floor(extendedBounds.left / xInterval) * xInterval;
+            const xEnd = Math.ceil(extendedBounds.right / xInterval) * xInterval;
+
+            for (let x = xStart; x <= xEnd; x += xInterval) {
+                const preciseX = this.roundToPrecision(x, 8);
+
+                // 垂直线：从底部到顶部
+                vertices.push(preciseX, extendedBounds.bottom, 0, preciseX, extendedBounds.top, 0);
+
+                // X轴刻度标签（只在可见区域显示）
+                if (x >= worldBounds.left && x <= worldBounds.right) {
+                    const screenPos = this.coordinateSystem.worldToScreen(x, worldBounds.bottom, this.camera, this.controls);
+                    if (screenPos.x >= 0 && screenPos.x <= this.coordinateSystem.canvasWidth) {
+                        newXLabels.push({ value: x, position: screenPos.x });
+                    }
+                }
+            }
+
+            // 生成Y轴网格线
+            const yStart = Math.floor(extendedBounds.bottom / yInterval) * yInterval;
+            const yEnd = Math.ceil(extendedBounds.top / yInterval) * yInterval;
+
+            for (let y = yStart; y <= yEnd; y += yInterval) {
+                const preciseY = this.roundToPrecision(y, 8);
+
+                // 水平线：从左到右
+                vertices.push(extendedBounds.left, preciseY, 0, extendedBounds.right, preciseY, 0);
+
+                // Y轴刻度标签（只在可见区域显示）
+                if (y >= worldBounds.bottom && y <= worldBounds.top) {
+                    const screenPos = this.coordinateSystem.worldToScreen(worldBounds.left, y, this.camera, this.controls);
+                    if (screenPos.y >= 0 && screenPos.y <= this.coordinateSystem.canvasHeight) {
+                        newYLabels.push({ value: y, position: screenPos.y });
+                    }
+                }
+            }
+
+            // 更新几何体
+            this.gridLines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            this.gridLines.geometry.attributes.position.needsUpdate = true;
+
+            // 更新标签
+            this.updateAxisLabels(this.xAxisContainer, this.xLabels, newXLabels, 'x');
+            this.updateAxisLabels(this.yAxisContainer, this.yLabels, newYLabels, 'y');
+
+            console.log(`动态网格更新: 网格线${vertices.length / 6}条, X标签${newXLabels.length}个, Y标签${newYLabels.length}个`);
+        } catch (error) {
+            console.error('网格更新失败:', error);
         }
-        if (newYLabels.length > 0) {
-            const firstLabel = newYLabels[0];
-            console.log(`第一个Y刻度: 世界坐标=${firstLabel.value.toFixed(2)}, 屏幕位置=${firstLabel.position.toFixed(1)}px`);
-        }
+    }
+    // [新增] 边界验证方法
+    validateBounds(bounds) {
+        return bounds &&
+            isFinite(bounds.left) && isFinite(bounds.right) &&
+            isFinite(bounds.bottom) && isFinite(bounds.top) &&
+            bounds.right > bounds.left &&
+            bounds.top > bounds.bottom &&
+            Math.abs(bounds.right - bounds.left) < 1e6 && // 避免过大范围
+            Math.abs(bounds.top - bounds.bottom) < 1e6;
     }
     // [新增] 动态计算填充因子，根据缩放级别调整
     calculateDynamicPadding(viewWidth, viewHeight) {
         const maxDimension = Math.max(Math.abs(viewWidth), Math.abs(viewHeight));
 
-        // 在放大时增加填充，确保网格覆盖
-        if (maxDimension < 1) {
-            return 0.5; // 高缩放级别，需要更多填充
-        } else if (maxDimension < 10) {
-            return 0.2; // 中等缩放级别
-        } else {
-            return 0.1; // 低缩放级别
-        }
+        // 根据视图大小动态调整填充
+        if (maxDimension < 0.1) return 2.0;    // 极大缩放
+        if (maxDimension < 1) return 1.0;      // 大缩放
+        if (maxDimension < 10) return 0.5;     // 中等缩放
+        return 0.2;                            // 小缩放
     }
     calculateNiceInterval(range) {
+        if (range <= 0) return 1;
+
         const exponent = Math.floor(Math.log10(range));
         const powerOfTen = Math.pow(10, exponent);
         const relativeRange = range / powerOfTen;
@@ -515,13 +611,20 @@ class DynamicGrid {
         newLabelsData.forEach(data => {
             const label = document.createElement('div');
             label.className = `axis-label-${axis}`;
-            label.innerText = data.value.toFixed(2);
+
+            // 智能格式化显示值
+            let displayValue = data.value;
+            if (Math.abs(displayValue) < 0.001) displayValue = 0;
+            label.innerText = displayValue.toFixed(2);
+
             container.appendChild(label);
 
             if (axis === 'x') {
                 label.style.left = `${data.position}px`;
+                label.style.transform = 'translateX(-50%)'; // 居中显示
             } else {
                 label.style.top = `${data.position}px`;
+                label.style.transform = 'translateY(-50%)'; // 居中显示
             }
 
             oldLabels.push(label);
@@ -574,17 +677,23 @@ class Plotter2D extends BasePlotter {
 
         // OrbitControls配置
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-        this.controls.enableRotate = false;
-        this.controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY };
-
-        // [关键修复] 正交摄像机专用配置
-        this.controls.screenSpacePanning = true; // 启用屏幕空间平移
-        this.controls.enableDamping = false;     // 禁用阻尼，确保精确控制
-        this.controls.minZoom = 0.1;            // 设置最小缩放
-        this.controls.maxZoom = 10;             // 设置最大缩放
+        // 2D特定配置
+        this.controls.enableRotate = false;          // 禁用旋转
+        this.controls.screenSpacePanning = true;     // 屏幕空间平移
+        this.controls.enableDamping = false;         // 禁用阻尼（2D不需要）
+        this.controls.mouseButtons = {
+            LEFT: THREE.MOUSE.PAN,
+            MIDDLE: THREE.MOUSE.DOLLY,
+            RIGHT: THREE.MOUSE.PAN
+        };
+        // [关键修复] 缩放限制
+        this.controls.minZoom = 0.05;
+        this.controls.maxZoom = 50;
+        this.controls.zoomSpeed = 1.0;
 
         // [重要] 设置合适的初始目标点
         this.controls.target.set(0, 0, 0);
+        this.controls.update();
 
         this.dynamicGrid = new DynamicGrid(this.scene, this.camera, this.coordinateSystem, this.controls);
 
@@ -631,8 +740,8 @@ class Plotter2D extends BasePlotter {
         this.camera.updateProjectionMatrix();
 
         // 强制更新网格
-        if (this.dynamicGrid) {
-            this.dynamicGrid.forceUpdate();
+        if (this.dynamicGrid && !this.isDynamicFitEnabled) {
+            this.dynamicGrid.update();
         }
 
         // [关键修复] 缩放时也更新十字光标坐标
@@ -658,71 +767,156 @@ class Plotter2D extends BasePlotter {
     animate = () => {
         this.animationFrameId = requestAnimationFrame(this.animate);
 
-        // 1. 动态适应逻辑（如果需要）
-        if (this.isDynamicFitEnabled) {
-            // 只在需要时执行，避免频繁调用
-            if (!this.lastFitTime || Date.now() - this.lastFitTime > 100) {
-                this.fitViewToData();
-                this.lastFitTime = Date.now();
+        // 仅处理用户控制时的更新
+        if (!this.isDynamicFitEnabled) {
+            this.controls.update();
+
+            if (this.dynamicGrid) {
+                this.dynamicGrid.update();
             }
         }
 
-        // 2. 更新控制器
-        this.controls.update();
-
-        // 3. 更新动态网格（使用最新的控制器状态）
-        if (this.dynamicGrid) {
-            this.dynamicGrid.update();
-        }
-
-        // 4. 渲染场景
         this.renderer.render(this.scene, this.camera);
     };
 
-    // 处理动态适应开关变化的事件
+
+    /**
+     * [修复] 动态适应开关
+     */
     onDynamicFitChange = (event) => {
         this.isDynamicFitEnabled = event.target.checked;
-        this.controls.enabled = !this.isDynamicFitEnabled; // 动态适应时，禁用用户手动控制
+        this.controls.enabled = !this.isDynamicFitEnabled;
+
+        if (this.isDynamicFitEnabled) {
+            // 开启动态适应时立即执行一次适应
+            setTimeout(() => {
+                this.fitViewToData();
+            }, 100);
+        }
     };
 
     // 计算所有可见对象的边界并自适应视角的核心方法
     fitViewToData = (padding = 0.1) => {
-        if (this.sceneObjects.size === 0) return;
+        console.log('🎯 执行适应视图到数据');
 
-        const sceneBBox = new THREE.Box3();
-        sceneBBox.makeEmpty();
+        // 临时禁用动画循环中的动态适应
+        const originalDynamicFitState = this.isDynamicFitEnabled;
+        this.isDynamicFitEnabled = false;
+
+        try {
+            if (this.sceneObjects.size === 0) {
+                console.log('无图元，重置到默认视图');
+                this.resetToDefaultView();
+                return;
+            }
+
+            // 计算场景边界
+            const sceneBBox = this.calculateAccurateBoundingBox();
+            if (!sceneBBox || sceneBBox.isEmpty()) {
+                console.log('空边界，重置到默认视图');
+                this.resetToDefaultView();
+                return;
+            }
+
+            const dataBounds = {
+                left: sceneBBox.min.x,
+                right: sceneBBox.max.x,
+                bottom: sceneBBox.min.y,
+                top: sceneBBox.max.y
+            };
+
+            console.log('📐 场景边界:', dataBounds);
+
+            // [关键] 执行适应
+            this.coordinateSystem.fitToData(dataBounds, this.camera, this.controls, padding);
+
+            // 强制立即更新
+            this.forceImmediateRender();
+
+        } catch (error) {
+            console.error('❌ 适应数据失败:', error);
+            this.resetToDefaultView();
+        } finally {
+            // 恢复状态
+            this.isDynamicFitEnabled = originalDynamicFitState;
+        }
+    };
+    /**
+     * [新增] 精确计算边界框
+     */
+    calculateAccurateBoundingBox() {
+        const bbox = new THREE.Box3();
+        let hasValidGeometry = false;
+
         this.sceneObjects.forEach(obj => {
-            sceneBBox.expandByObject(obj);
+            // 确保几何体是有效的
+            if (obj.geometry && obj.geometry.attributes && obj.geometry.attributes.position) {
+                obj.updateMatrixWorld(true);
+
+                const geometry = obj.geometry;
+                const position = geometry.attributes.position;
+
+                // 直接处理顶点数据，避免setFromObject的精度问题
+                for (let i = 0; i < position.count; i++) {
+                    const vertex = new THREE.Vector3();
+                    vertex.fromBufferAttribute(position, i);
+                    obj.localToWorld(vertex); // 转换到世界坐标
+                    bbox.expandByPoint(vertex);
+                }
+
+                hasValidGeometry = true;
+            }
         });
 
-        if (sceneBBox.isEmpty()) return;
+        return hasValidGeometry ? bbox : null;
+    }
 
-        const dataBounds = {
-            left: sceneBBox.min.x,
-            right: sceneBBox.max.x,
-            bottom: sceneBBox.min.y,
-            top: sceneBBox.max.y
-        };
-
-        // [关键修复] 不传递controls参数
-        const result = this.coordinateSystem.fitToData(dataBounds, this.camera, padding);
-
-        // [重要] 重置控制器目标点到新的中心，但不触发控制器更新
-        this.controls.target.set(result.centerX, result.centerY, 0);
-        this.controls.reset(); // 重置控制器状态，但不改变摄像机
-    };
-
+    /**
+    * [关键修复] 重置视角方法
+    */
     resetView = () => {
-        // 先重置控制器（但不改变摄像机）
-        this.controls.reset();
+        console.log('🔁 用户点击重置视角');
 
-        // 然后适应数据边界
-        this.fitViewToData();
+        // 禁用动态适应
+        this.isDynamicFitEnabled = false;
+        if (this.dynamicFitToggle) {
+            this.dynamicFitToggle.checked = false;
+        }
 
-        // 确保摄像机更新
-        this.camera.updateProjectionMatrix();
+        if (this.sceneObjects.size === 0) {
+            this.resetToDefaultView();
+        } else {
+            // 使用较小的padding确保图元完全可见
+            this.fitViewToData(0.05);
+        }
+
+        this.forceImmediateRender();
     };
+    /**
+    * [修复] 重置到默认视图
+    */
+    resetToDefaultView = () => {
+        console.log('🏠 重置到默认视图');
+        this.coordinateSystem.resetToDefault(this.camera, this.controls);
+        this.forceImmediateRender();
+    };
+    /**
+     * [新增] 强制立即渲染
+     */
+    forceImmediateRender = () => {
+        // 更新网格
+        if (this.dynamicGrid && typeof this.dynamicGrid.update === 'function') {
+            this.dynamicGrid.update();
+        }
 
+        // 更新相机
+        this.camera.updateProjectionMatrix();
+
+        // 立即渲染（不等待动画循环）
+        this.renderer.render(this.scene, this.camera);
+
+        console.log('🖼️ 立即渲染完成');
+    };
     // 更新鼠标移动事件处理
     onMouseMove = (event) => {
         const rect = this.canvasContainer.getBoundingClientRect();
@@ -741,18 +935,24 @@ class Plotter2D extends BasePlotter {
         this.crosshairY.style.left = '-100px';
         this.tooltipEl.style.display = 'none';
     };
-
+    /**
+    * [修复] 窗口大小变化处理
+    */
     onWindowResize = () => {
-        // 更新坐标系统的画布尺寸
         this.coordinateSystem.updateCanvasSize();
+        this.renderer.setSize(this.coordinateSystem.canvasWidth, this.coordinateSystem.canvasHeight);
 
         if (this.isDynamicFitEnabled) {
-            this.fitViewToData();
+            // 延迟执行避免频繁调整
+            clearTimeout(this.resizeTimeout);
+            this.resizeTimeout = setTimeout(() => {
+                this.fitViewToData();
+            }, 250);
         } else {
-            // 保持当前视图，只更新渲染器尺寸
-            this.renderer.setSize(this.coordinateSystem.canvasWidth, this.coordinateSystem.canvasHeight);
             this.camera.updateProjectionMatrix();
         }
+
+        this.forceImmediateRender();
     };
 
     dispatch(command) {
@@ -792,7 +992,6 @@ class Plotter2D extends BasePlotter {
                 this.isDynamicFitEnabled = false;
                 this.controls.enabled = true;
 
-                // [关键修复] 直接使用坐标系统的方法
                 const dataBounds = {
                     left: props.getXMin(),
                     right: props.getXMax(),
@@ -800,7 +999,13 @@ class Plotter2D extends BasePlotter {
                     top: props.getYMax()
                 };
 
-                this.coordinateSystem.fitToData(dataBounds, this.camera);
+                // [关键修复] 传递controls参数
+                this.coordinateSystem.fitToData(dataBounds, this.camera, this.controls);
+
+                // 强制更新网格
+                if (this.dynamicGrid) {
+                    this.dynamicGrid.forceUpdate();
+                }
                 break;
             }
             case proto.visualization.Command2D.CommandTypeCase.SET_TITLE:

@@ -125,7 +125,7 @@ int main() {
 
       // point->set_position({-3.5f + cos_a * 0.5f, 2.0f});
       pose->set_angle(angle * 2.0f);
-      circle->set_radius(0.25f + (sin_a + 1.0f) * 0.25f);
+      circle->set_radius(0.25f + (sin_a + 1.0f) * 3.25f);
       auto current_box_pose = box->get_center();
       current_box_pose.set_position({-3.5f, -2.5f + sin_a * 0.5f});
       current_box_pose.set_angle(-angle);
