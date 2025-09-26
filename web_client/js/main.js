@@ -1,8 +1,3 @@
-// TODO 整个前端的几何坐标系，图像坐标系，要有一个统一的管理，实现几何体，网格线，刻度，十字光标值的统一对齐
-// 目前存在的问题：
-// 1、十字光标显示的坐标不是几何坐标，
-// 2、网格线绘制范围在放大时还是存在不能充满整个图窗，
-// 3、刻度值出现的位置与网格线没对应上
 import * as THREE from './lib/three.module.js';
 import { OrbitControls } from './lib/OrbitControls.js';
 // import * as proto from './lib/protocol/visualization_pb.js';
