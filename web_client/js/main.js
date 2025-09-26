@@ -329,7 +329,7 @@ class CoordinateSystem {
 
     // 适应数据边界
     fitToData(dataBounds, camera, controls = null, padding = 0.1) {
-        console.log('🔧 开始适应数据:', dataBounds);
+        // console.log('🔧 开始适应数据:', dataBounds);
 
         // 验证数据边界
         if (!this.validateDataBounds(dataBounds)) {
@@ -400,15 +400,15 @@ class CoordinateSystem {
             controls.update();
         }
 
-        console.log('✅ 适应完成:', {
-            数据中心: `(${centerX.toFixed(2)}, ${centerY.toFixed(2)})`,
-            视图尺寸: `${viewWidth.toFixed(2)}x${viewHeight.toFixed(2)}`,
-            画布比例: this.canvasAspect.toFixed(3),
-            相机边界: {
-                left: camera.left.toFixed(2), right: camera.right.toFixed(2),
-                bottom: camera.bottom.toFixed(2), top: camera.top.toFixed(2)
-            }
-        });
+        // console.log('✅ 适应完成:', {
+        //     数据中心: `(${centerX.toFixed(2)}, ${centerY.toFixed(2)})`,
+        //     视图尺寸: `${viewWidth.toFixed(2)}x${viewHeight.toFixed(2)}`,
+        //     画布比例: this.canvasAspect.toFixed(3),
+        //     相机边界: {
+        //         left: camera.left.toFixed(2), right: camera.right.toFixed(2),
+        //         bottom: camera.bottom.toFixed(2), top: camera.top.toFixed(2)
+        //     }
+        // });
 
         return {
             centerX, centerY,
@@ -561,7 +561,7 @@ class DynamicGrid {
             this.updateAxisLabels(this.xAxisContainer, this.xLabels, newXLabels, 'x');
             this.updateAxisLabels(this.yAxisContainer, this.yLabels, newYLabels, 'y');
 
-            console.log(`动态网格更新: 网格线${vertices.length / 6}条, X标签${newXLabels.length}个, Y标签${newYLabels.length}个`);
+            // console.log(`动态网格更新: 网格线${vertices.length / 6}条, X标签${newXLabels.length}个, Y标签${newYLabels.length}个`);
         } catch (error) {
             console.error('网格更新失败:', error);
         }
@@ -643,7 +643,8 @@ class Plotter2D extends BasePlotter {
         super(container);
         this.type = '2D';
         this.isDynamicFitEnabled = false;
-        this.lastFitTime = 0; // 添加时间控制
+        this.lastSceneHash = ''; // 用于检测场景变化
+        this.dynamicFitPadding = 0.1; // 动态适应的填充值
 
         // 查找所有UI元素
         this.titleEl = container.querySelector('#figure-title');
@@ -723,9 +724,9 @@ class Plotter2D extends BasePlotter {
             if (!currentTarget.equals(this.lastControlState.target) ||
                 Math.abs(currentZoom - this.lastControlState.zoom) > 0.01) {
 
-                console.log('控制器状态 - 目标:',
-                    currentTarget.x.toFixed(2), currentTarget.y.toFixed(2),
-                    'Zoom:', currentZoom.toFixed(2));
+                // console.log('控制器状态 - 目标:',
+                //     currentTarget.x.toFixed(2), currentTarget.y.toFixed(2),
+                //     'Zoom:', currentZoom.toFixed(2));
 
                 this.lastControlState.target.copy(currentTarget);
                 this.lastControlState.zoom = currentZoom;
@@ -767,53 +768,79 @@ class Plotter2D extends BasePlotter {
     animate = () => {
         this.animationFrameId = requestAnimationFrame(this.animate);
 
-        // 仅处理用户控制时的更新
-        if (!this.isDynamicFitEnabled) {
+        // 1. 动态适应逻辑（如果需要）
+        if (this.isDynamicFitEnabled) {
+            this.handleDynamicFit();
+        } else {
+            // 标准用户控制模式
             this.controls.update();
-
-            if (this.dynamicGrid) {
-                this.dynamicGrid.update();
-            }
         }
-
+        // 2. 更新动态网格
+        if (this.dynamicGrid) {
+            this.dynamicGrid.update();
+        }
+        // 3. 渲染场景
         this.renderer.render(this.scene, this.camera);
     };
 
-
     /**
-     * [修复] 动态适应开关
+     * [新增] 处理动态适应的核心逻辑
      */
-    onDynamicFitChange = (event) => {
-        this.isDynamicFitEnabled = event.target.checked;
-        this.controls.enabled = !this.isDynamicFitEnabled;
+    handleDynamicFit = () => {
+        // 检查场景是否有变化
+        const currentSceneHash = this.calculateSceneHash();
 
-        if (this.isDynamicFitEnabled) {
-            // 开启动态适应时立即执行一次适应
-            setTimeout(() => {
-                this.fitViewToData();
-            }, 100);
+        if (currentSceneHash !== this.lastSceneHash) {
+            // console.log('🔄 检测到场景变化，执行动态适应');
+            this.executeDynamicFit();
+            this.lastSceneHash = currentSceneHash;
+        }
+
+        // 即使没有场景变化，也定期检查（防止漏检）
+        const now = Date.now();
+        if (!this.lastPeriodicCheck || now - this.lastPeriodicCheck > 10) {
+            this.executeDynamicFit(); // 强制执行适应
+            this.lastPeriodicCheck = now;
         }
     };
+    /**
+     * [新增] 计算场景哈希值，用于检测变化
+     */
+    calculateSceneHash = () => {
+        if (this.sceneObjects.size === 0) {
+            return 'empty';
+        }
 
-    // 计算所有可见对象的边界并自适应视角的核心方法
-    fitViewToData = (padding = 0.1) => {
-        console.log('🎯 执行适应视图到数据');
+        let hash = '';
+        this.sceneObjects.forEach((obj, id) => {
+            // 基于对象ID和位置计算简单哈希
+            if (obj.position) {
+                hash += `${id}_${obj.position.x.toFixed(2)}_${obj.position.y.toFixed(2)}_`;
+            }
+            // 如果是组对象，检查子对象
+            if (obj.children && obj.children.length > 0) {
+                obj.children.forEach(child => {
+                    if (child.position) {
+                        hash += `child_${child.position.x.toFixed(2)}_${child.position.y.toFixed(2)}_`;
+                    }
+                });
+            }
+        });
 
-        // 临时禁用动画循环中的动态适应
-        const originalDynamicFitState = this.isDynamicFitEnabled;
-        this.isDynamicFitEnabled = false;
+        return hash || 'no_changes';
+    };
+    /**
+     * [新增] 执行动态适应（优化版本）
+     */
+    executeDynamicFit = () => {
+        if (this.sceneObjects.size === 0) {
+            this.resetToDefaultView();
+            return;
+        }
 
         try {
-            if (this.sceneObjects.size === 0) {
-                console.log('无图元，重置到默认视图');
-                this.resetToDefaultView();
-                return;
-            }
-
-            // 计算场景边界
             const sceneBBox = this.calculateAccurateBoundingBox();
             if (!sceneBBox || sceneBBox.isEmpty()) {
-                console.log('空边界，重置到默认视图');
                 this.resetToDefaultView();
                 return;
             }
@@ -825,20 +852,112 @@ class Plotter2D extends BasePlotter {
                 top: sceneBBox.max.y
             };
 
-            console.log('📐 场景边界:', dataBounds);
+            // [优化] 只在边界变化较大时才重新适应
+            if (this.shouldRefit(dataBounds)) {
+                this.coordinateSystem.fitToData(dataBounds, this.camera, this.controls, this.dynamicFitPadding);
+                this.lastDataBounds = dataBounds;
 
-            // [关键] 执行适应
+                // 立即更新渲染
+                this.camera.updateProjectionMatrix();
+                if (this.dynamicGrid) {
+                    this.dynamicGrid.update();
+                }
+            }
+
+        } catch (error) {
+            console.error('动态适应执行失败:', error);
+        }
+    };
+    /**
+     * [新增] 判断是否需要重新适应（避免频繁调整）
+     */
+    shouldRefit = (newBounds) => {
+        // return true;
+        if (!this.lastDataBounds) return true;
+
+        // 计算边界变化程度
+        const widthChange = Math.abs((newBounds.right - newBounds.left) -
+            (this.lastDataBounds.right - this.lastDataBounds.left));
+        const heightChange = Math.abs((newBounds.top - newBounds.bottom) -
+            (this.lastDataBounds.top - this.lastDataBounds.bottom));
+
+        const centerXChange = Math.abs(((newBounds.left + newBounds.right) / 2) -
+            ((this.lastDataBounds.left + this.lastDataBounds.right) / 2));
+        const centerYChange = Math.abs(((newBounds.bottom + newBounds.top) / 2) -
+            ((this.lastDataBounds.bottom + this.lastDataBounds.top) / 2));
+
+        // 只有变化超过阈值时才重新适应
+        const threshold = 0.01; // 1%的变化阈值
+        const maxDimension = Math.max(
+            this.lastDataBounds.right - this.lastDataBounds.left,
+            this.lastDataBounds.top - this.lastDataBounds.bottom,
+            1.0 // 避免除零
+        );
+
+        return (widthChange > maxDimension * threshold ||
+            heightChange > maxDimension * threshold ||
+            centerXChange > maxDimension * threshold ||
+            centerYChange > maxDimension * threshold);
+    };
+    /**
+     * [修复] 动态适应开关处理
+     */
+    onDynamicFitChange = (event) => {
+        this.isDynamicFitEnabled = event.target.checked;
+        this.controls.enabled = !this.isDynamicFitEnabled;
+
+        if (this.isDynamicFitEnabled) {
+            console.log('✅ 开启动态适应模式');
+            // 立即执行一次适应并重置状态
+            this.lastSceneHash = '';
+            this.lastDataBounds = null;
+            setTimeout(() => {
+                this.executeDynamicFit();
+            }, 50);
+        } else {
+            console.log('❌ 关闭动态适应模式');
+        }
+    };
+
+    /**
+      * [优化] 适应视图到数据（用于手动调用）
+      */
+    fitViewToData = (padding = 0.1) => {
+        // console.log('🎯 手动执行适应视图到数据');
+        this.dynamicFitPadding = padding; // 更新填充值
+
+        // 临时禁用动态适应避免循环
+        const wasEnabled = this.isDynamicFitEnabled;
+        this.isDynamicFitEnabled = false;
+
+        try {
+            if (this.sceneObjects.size === 0) {
+                this.resetToDefaultView();
+                return;
+            }
+
+            const sceneBBox = this.calculateAccurateBoundingBox();
+            if (!sceneBBox || sceneBBox.isEmpty()) {
+                this.resetToDefaultView();
+                return;
+            }
+
+            const dataBounds = {
+                left: sceneBBox.min.x,
+                right: sceneBBox.max.x,
+                bottom: sceneBBox.min.y,
+                top: sceneBBox.max.y
+            };
+
             this.coordinateSystem.fitToData(dataBounds, this.camera, this.controls, padding);
-
-            // 强制立即更新
             this.forceImmediateRender();
 
         } catch (error) {
-            console.error('❌ 适应数据失败:', error);
+            console.error('适应数据失败:', error);
             this.resetToDefaultView();
         } finally {
             // 恢复状态
-            this.isDynamicFitEnabled = originalDynamicFitState;
+            this.isDynamicFitEnabled = wasEnabled;
         }
     };
     /**
@@ -915,7 +1034,7 @@ class Plotter2D extends BasePlotter {
         // 立即渲染（不等待动画循环）
         this.renderer.render(this.scene, this.camera);
 
-        console.log('🖼️ 立即渲染完成');
+        // console.log('🖼️ 立即渲染完成');
     };
     // 更新鼠标移动事件处理
     onMouseMove = (event) => {
