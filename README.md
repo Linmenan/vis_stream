@@ -16,7 +16,7 @@
 
 ```
 vis_stream
-├── build/                              # 编译输出目录
+├── build/                           # 编译输出目录
 ├── cpp_backend
 │   ├── include
 │   │   ├── vis_primitives.h         # 公共数据结构

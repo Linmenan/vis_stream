@@ -1,3 +1,4 @@
+# examples/basic_usage/CMakeLists.txt
 cmake_minimum_required(VERSION 3.15)
 project(ExampleBasicUsage)
 
@@ -9,3 +10,8 @@ add_executable(example_2d_usage main_2d.cpp)
 # CMake会自动处理依赖关系，将vis_stream_core库需要的所有头文件路径和链接库都传递过来。
 target_link_libraries(example_3d_usage PRIVATE vis_stream_core)
 target_link_libraries(example_2d_usage PRIVATE vis_stream_core)
+
+# --- 新增：安装示例程序（可选） ---
+install(TARGETS example_3d_usage example_2d_usage
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)

@@ -1,4 +1,8 @@
 // vis_stream/cpp_backend/src/visualization_server.cpp
+#include "vis_stream.h"  // 必须首先包含自己的头文件
+
+// 在这里包含所有必要的头文件
+#include <atomic>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
@@ -12,12 +16,16 @@
 #include <websocketpp/config/asio_no_tls.hpp>
 #include <websocketpp/server.hpp>
 
+#include "typed_window.h"
 #include "vis_primitives.h"
-#include "vis_stream.h"
 #include "visualization.pb.h"
+#include "window_2d.h"
+#include "window_3d.h"
+#include "window_base.h"
 
 // Helper function to convert Vis types to Proto types
 namespace {
+// 所有的 to_proto 辅助函数...
 void to_proto(const Vis::Vec2& in, visualization::Vec2* out) {
   out->set_x(in.x);
   out->set_y(in.y);
@@ -97,13 +105,57 @@ void to_proto(const Vis::Box3D& in, visualization::Box3D* out) {
   out->set_z_length(len.z);
 }
 
+// Helper to clone Observable objects
+std::shared_ptr<Vis::Observable> clone_to_shared(const Vis::Observable& obj) {
+  if (auto p = dynamic_cast<const Vis::Point2D*>(&obj)) {
+    return std::make_shared<Vis::Point2D>(*p);
+  } else if (auto p = dynamic_cast<const Vis::Pose2D*>(&obj)) {
+    return std::make_shared<Vis::Pose2D>(*p);
+  } else if (auto p = dynamic_cast<const Vis::Circle*>(&obj)) {
+    return std::make_shared<Vis::Circle>(*p);
+  } else if (auto p = dynamic_cast<const Vis::Box2D*>(&obj)) {
+    return std::make_shared<Vis::Box2D>(*p);
+  } else if (auto p = dynamic_cast<const Vis::Line2D*>(&obj)) {
+    return std::make_shared<Vis::Line2D>(*p);
+  } else if (auto p = dynamic_cast<const Vis::Trajectory2D*>(&obj)) {
+    return std::make_shared<Vis::Trajectory2D>(*p);
+  } else if (auto p = dynamic_cast<const Vis::Polygon*>(&obj)) {
+    return std::make_shared<Vis::Polygon>(*p);
+  } else if (auto p = dynamic_cast<const Vis::Point3D*>(&obj)) {
+    return std::make_shared<Vis::Point3D>(*p);
+  } else if (auto p = dynamic_cast<const Vis::Pose3D*>(&obj)) {
+    return std::make_shared<Vis::Pose3D>(*p);
+  } else if (auto p = dynamic_cast<const Vis::Ball*>(&obj)) {
+    return std::make_shared<Vis::Ball>(*p);
+  } else if (auto p = dynamic_cast<const Vis::Box3D*>(&obj)) {
+    return std::make_shared<Vis::Box3D>(*p);
+  }
+  return nullptr;
+}
+
 }  // namespace
 
+// ServerImpl 作为 VisualizationServer 的内部类实现
 class VisualizationServer::ServerImpl : public Vis::IObserver {
  public:
   using server = websocketpp::server<websocketpp::config::asio>;
   using connection_hdl = websocketpp::connection_hdl;
   using steady_timer = boost::asio::steady_timer;
+
+  struct TrackedObject {
+    std::string id;
+    std::weak_ptr<Vis::Observable> obj_ptr;
+    bool is_3d;
+    std::string window_name;
+    size_t window_idx;
+    visualization::Material material;
+  };
+
+  struct WindowInfo {
+    std::string name;
+    bool is_3d;
+    std::string display_name;
+  };
 
   ServerImpl(uint16_t port)
       : m_port(port),
@@ -113,9 +165,9 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     m_server.init_asio();
     m_server.set_reuse_addr(true);
     m_server.set_open_handler(
-        bind(&ServerImpl::on_open, this, std::placeholders::_1));
+        std::bind(&ServerImpl::on_open, this, std::placeholders::_1));
     m_server.set_close_handler(
-        bind(&ServerImpl::on_close, this, std::placeholders::_1));
+        std::bind(&ServerImpl::on_close, this, std::placeholders::_1));
     m_timer = std::make_unique<steady_timer>(m_server.get_io_service());
   }
 
@@ -135,7 +187,6 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     m_server.get_io_service().post([this]() { m_timer->cancel(); });
     if (!m_server.stopped()) {
       m_server.stop_listening();
-      // Gracefully close all connections
       for (const auto& pair : m_connections) {
         websocketpp::lib::error_code ec;
         m_server.close(pair.second, websocketpp::close::status::going_away, "",
@@ -153,42 +204,49 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     if (m_connections.empty() || update.window_id().empty()) return;
     if (m_connections.count(update.window_id()) == 0) return;
     auto hdl = m_connections.at(update.window_id());
-    // 创建顶层包装消息
     visualization::VisMessage vis_msg;
-    // 根据传入的 update 类型，设置 oneof 字段
     if constexpr (std::is_same_v<T, visualization::Scene3DUpdate>) {
       vis_msg.mutable_scene_3d_update()->CopyFrom(update);
     } else if constexpr (std::is_same_v<T, visualization::Scene2DUpdate>) {
       vis_msg.mutable_scene_2d_update()->CopyFrom(update);
     } else {
-      // 如果有其他类型，可以在这里扩展
       return;
     }
     std::string serialized_msg;
-    vis_msg.SerializeToString(&serialized_msg);  // 序列化包装消息
+    vis_msg.SerializeToString(&serialized_msg);
     m_server.send(hdl, serialized_msg, websocketpp::frame::opcode::binary);
   }
 
-  void show(std::shared_ptr<Vis::Observable> obj, const std::string& id,
-            const visualization::Material& material, bool is_3d) {
+  void add(std::shared_ptr<Vis::Observable> obj, const std::string& window_name,
+           const visualization::Material& material, bool is_3d) {
     if (!obj) return;
     std::lock_guard<std::mutex> lock(m_mutex);
+    cleanup_expired_objects();
 
-    Vis::Observable* obj_ptr = obj.get();
+    std::string object_id = "obj_" + std::to_string(m_next_object_id++);
+
+    TrackedObject tracked;
+    tracked.id = object_id;
+    tracked.obj_ptr = obj;
+    tracked.is_3d = is_3d;
+    tracked.window_name = window_name;
+    tracked.window_idx = 0;
+    tracked.material = material;
+
+    m_tracked_objects[object_id] = tracked;
+    m_object_ptr_to_id[obj.get()] = object_id;
+    m_window_objects[window_name].insert(object_id);
+
     obj->set_observer(this);
-    m_tracked_objects[obj_ptr] = {id, obj, is_3d};
-    m_id_to_object_ptr[id] = obj_ptr;
 
-    if (m_connections.empty()) return;
-    // By default, send to the first connected client.
-    // A more advanced implementation might allow specifying a window_id.
-    std::string window_id = m_connections.begin()->first;
+    std::string window_id = get_window_id_for_name(window_name, is_3d);
+    if (window_id.empty()) return;
 
     if (is_3d) {
       visualization::Scene3DUpdate scene_update;
       scene_update.set_window_id(window_id);
       auto* cmd = scene_update.add_commands()->mutable_add_object();
-      cmd->set_id(id);
+      cmd->set_id(object_id);
       cmd->mutable_material()->CopyFrom(material);
       populate_3d_geometry(obj, cmd);
       send_update(scene_update);
@@ -196,60 +254,117 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       visualization::Scene2DUpdate scene_update;
       scene_update.set_window_id(window_id);
       auto* cmd = scene_update.add_commands()->mutable_add_object();
-      cmd->set_id(id);
+      cmd->set_id(object_id);
       cmd->mutable_material()->CopyFrom(material);
       populate_2d_geometry(obj, cmd);
       send_update(scene_update);
     }
   }
 
-  void remove(const std::string& id) {
+  void add(const Vis::Observable& obj, const std::string& window_name,
+           const visualization::Material& material, bool is_3d) {
+    auto obj_copy = clone_to_shared(obj);
+    if (obj_copy) {
+      add(obj_copy, window_name, material, is_3d);
+    }
+  }
+
+  void clear_dynamic(const std::string& window_name) {
     std::lock_guard<std::mutex> lock(m_mutex);
-    auto it_id = m_id_to_object_ptr.find(id);
-    if (it_id == m_id_to_object_ptr.end()) return;
+    cleanup_expired_objects();
 
-    Vis::Observable* obj_ptr = it_id->second;
-    auto tracked_info = m_tracked_objects.at(obj_ptr);
+    auto it = m_window_objects.find(window_name);
+    if (it == m_window_objects.end()) return;
 
-    m_id_to_object_ptr.erase(it_id);
-    m_tracked_objects.erase(obj_ptr);
-    m_dirty_set_2d.erase(obj_ptr);
-    m_dirty_set_3d.erase(obj_ptr);
-    obj_ptr->set_observer(nullptr);
+    std::vector<std::string> to_remove;
+    for (const auto& object_id : it->second) {
+      auto tracked_it = m_tracked_objects.find(object_id);
+      if (tracked_it != m_tracked_objects.end()) {
+        auto obj = tracked_it->second.obj_ptr.lock();
+        if (obj) {
+          to_remove.push_back(object_id);
+        }
+      }
+    }
 
-    if (m_connections.empty()) return;
-    std::string window_id = m_connections.begin()->first;
+    for (const auto& id : to_remove) {
+      remove_object_internal(id);
+    }
+  }
 
-    if (tracked_info.is_3d) {
-      visualization::Scene3DUpdate u;
-      u.set_window_id(window_id);
-      u.add_commands()->mutable_delete_object()->set_id(id);
-      send_update(u);
-    } else {
-      visualization::Scene2DUpdate u;
-      u.set_window_id(window_id);
-      u.add_commands()->mutable_delete_object()->set_id(id);
-      send_update(u);
+  void clear_static(const std::string& window_name) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    cleanup_expired_objects();
+
+    auto it = m_window_objects.find(window_name);
+    if (it == m_window_objects.end()) return;
+
+    std::vector<std::string> to_remove;
+    for (const auto& object_id : it->second) {
+      auto tracked_it = m_tracked_objects.find(object_id);
+      if (tracked_it != m_tracked_objects.end()) {
+        if (tracked_it->second.obj_ptr.expired()) {
+          to_remove.push_back(object_id);
+        }
+      }
+    }
+
+    for (const auto& id : to_remove) {
+      remove_object_internal(id);
+    }
+  }
+
+  void clear(const std::string& window_name) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    cleanup_expired_objects();
+
+    auto it = m_window_objects.find(window_name);
+    if (it == m_window_objects.end()) return;
+
+    std::vector<std::string> to_remove(it->second.begin(), it->second.end());
+    for (const auto& id : to_remove) {
+      remove_object_internal(id);
     }
   }
 
   void on_update(Vis::Observable* subject) override {
     std::lock_guard<std::mutex> lock(m_mutex);
-    auto it = m_tracked_objects.find(subject);
-    if (it != m_tracked_objects.end()) {
-      if (it->second.is_3d) {
-        m_dirty_set_3d.insert(subject);
-        if (m_auto_update_enabled && m_update_threshold > 0 &&
-            m_dirty_set_3d.size() >= m_update_threshold) {
-          flush_dirty_set_3d_unlocked();
-        }
-      } else {
-        m_dirty_set_2d.insert(subject);
-        if (m_auto_update_enabled && m_update_threshold > 0 &&
-            m_dirty_set_2d.size() >= m_update_threshold) {
-          flush_dirty_set_2d_unlocked();
-        }
+    cleanup_expired_objects();
+
+    auto it = m_object_ptr_to_id.find(subject);
+    if (it == m_object_ptr_to_id.end()) return;
+
+    const std::string& object_id = it->second;
+    auto tracked_it = m_tracked_objects.find(object_id);
+    if (tracked_it == m_tracked_objects.end()) return;
+
+    const auto& tracked = tracked_it->second;
+
+    if (tracked.is_3d) {
+      m_dirty_objects_3d[tracked.window_name].insert(object_id);
+      if (m_auto_update_enabled &&
+          m_dirty_objects_3d[tracked.window_name].size() >=
+              static_cast<size_t>(m_update_threshold)) {
+        flush_dirty_set_3d_unlocked(tracked.window_name);
       }
+    } else {
+      m_dirty_objects_2d[tracked.window_name].insert(object_id);
+      if (m_auto_update_enabled &&
+          m_dirty_objects_2d[tracked.window_name].size() >=
+              static_cast<size_t>(m_update_threshold)) {
+        flush_dirty_set_2d_unlocked(tracked.window_name);
+      }
+    }
+  }
+
+  void drawnow(const std::string& name, const bool& is_3d) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    cleanup_expired_objects();
+
+    if (is_3d) {
+      flush_dirty_set_3d_unlocked(name);
+    } else {
+      flush_dirty_set_2d_unlocked(name);
     }
   }
 
@@ -261,34 +376,11 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     m_update_interval = interval_ms;
     bool is_enabled = m_auto_update_enabled && m_update_interval > 0;
 
-    // Schedule or cancel the timer outside the lock to avoid deadlock if the
-    // timer callback also tries to lock. The use of io_service::post safely
-    // queues the operation.
     if (!was_enabled && is_enabled) {
       m_server.get_io_service().post([this]() { schedule_auto_flush(); });
     } else if (was_enabled && !is_enabled) {
       m_server.get_io_service().post([this]() { m_timer->cancel(); });
     }
-  }
-
-  void drawnow2D() {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    flush_dirty_set_2d_unlocked();
-  }
-
-  void drawnow3D() {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    flush_dirty_set_3d_unlocked();
-  }
-
-  template <typename CommandType, typename SceneUpdateType>
-  void send_window_command(const std::string& window_id,
-                           std::function<void(CommandType*)> cmd_filler) {
-    if (m_connections.count(window_id) == 0) return;
-    SceneUpdateType u;
-    u.set_window_id(window_id);
-    cmd_filler(u.add_commands());
-    send_update(u);
   }
 
   std::vector<std::string> get_connected_windows() {
@@ -299,75 +391,227 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     return ids;
   }
 
- private:
-  struct TrackedObject {
-    std::string id;
-    std::weak_ptr<Vis::Observable> obj_ptr;
-    bool is_3d;
-  };
+  void create_window(const std::string& name, bool is_3d) {
+    std::lock_guard<std::mutex> lock(m_mutex);
 
+    std::string window_name =
+        name.empty() ? "window_" + std::to_string(m_next_window_index++) : name;
+
+    m_windows[window_name] = WindowInfo{window_name, is_3d, window_name};
+
+    std::cout << "Created " << (is_3d ? "3D" : "2D")
+              << " window: " << window_name << std::endl;
+  }
+
+  bool remove_window(const std::string& name, bool is_3d) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    auto it = m_windows.find(name);
+    if (it == m_windows.end() || it->second.is_3d != is_3d) {
+      return false;
+    }
+
+    clear(name);
+    m_windows.erase(it);
+
+    std::cout << "Removed window: " << name << std::endl;
+    return true;
+  }
+
+  template <typename CommandType, typename SceneUpdateType>
+  void send_window_command(const std::string& window_name, bool is_3d,
+                           std::function<void(CommandType*)> cmd_filler) {
+    std::string window_id = get_window_id_for_name(window_name, is_3d);
+    if (window_id.empty()) return;
+
+    SceneUpdateType u;
+    u.set_window_id(window_id);
+    cmd_filler(u.add_commands());
+    send_update(u);
+  }
+
+  std::vector<std::string> get_windows_name(const bool& is_3d) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    std::vector<std::string> names;
+    for (const auto& [name, info] : m_windows) {
+      if (info.is_3d == is_3d) {
+        names.push_back(name);
+      }
+    }
+    return names;
+  }
+
+  size_t getTotalWindows() const { return m_windows.size(); }
+
+  size_t getTotalObservables() const { return m_tracked_objects.size(); }
+
+ private:
   server m_server;
   std::unique_ptr<steady_timer> m_timer;
   uint16_t m_port;
   std::thread m_thread;
   std::mutex m_mutex;
-  std::map<Vis::Observable*, TrackedObject> m_tracked_objects;
-  std::map<std::string, Vis::Observable*> m_id_to_object_ptr;
+  std::atomic<uint64_t> m_next_object_id{1};
+
+  std::unordered_map<std::string, TrackedObject> m_tracked_objects;
+  std::unordered_map<Vis::Observable*, std::string> m_object_ptr_to_id;
+  std::unordered_map<std::string, std::unordered_set<std::string>>
+      m_window_objects;
+  std::unordered_map<std::string, std::unordered_set<std::string>>
+      m_dirty_objects_2d;
+  std::unordered_map<std::string, std::unordered_set<std::string>>
+      m_dirty_objects_3d;
+
+  std::unordered_map<std::string, WindowInfo> m_windows;
+  std::atomic<size_t> m_next_window_index{0};
+
   bool m_auto_update_enabled;
   int m_update_threshold;
   int m_update_interval;
-  std::set<Vis::Observable*> m_dirty_set_2d;
-  std::set<Vis::Observable*> m_dirty_set_3d;
   std::map<std::string, connection_hdl> m_connections;
 
-  void flush_dirty_set_unlocked(bool is_3d) {
-    auto& dirty_set = is_3d ? m_dirty_set_3d : m_dirty_set_2d;
-    if (dirty_set.empty() || m_connections.empty()) return;
+  // 私有方法实现...
+  void cleanup_expired_objects() {
+    std::vector<std::string> expired_ids;
 
-    std::string target_window = m_connections.begin()->first;
-
-    if (is_3d) {
-      visualization::Scene3DUpdate scene_update;
-      for (Vis::Observable* subject : dirty_set) {
-        auto it = m_tracked_objects.find(subject);
-        if (it == m_tracked_objects.end() || it->second.obj_ptr.expired()) {
-          continue;
-        }
-        auto* update_geom =
-            scene_update.add_commands()->mutable_update_object_geometry();
-        update_geom->set_id(it->second.id);
-        populate_3d_geometry_update(it->second.obj_ptr.lock(), update_geom);
-      }
-      if (scene_update.commands_size() > 0) {
-        scene_update.set_window_id(target_window);
-        send_update(scene_update);
-      }
-    } else {
-      visualization::Scene2DUpdate scene_update;
-      for (Vis::Observable* subject : dirty_set) {
-        auto it = m_tracked_objects.find(subject);
-        if (it == m_tracked_objects.end() || it->second.obj_ptr.expired()) {
-          continue;
-        }
-        auto* update_geom =
-            scene_update.add_commands()->mutable_update_object_geometry();
-        update_geom->set_id(it->second.id);
-        populate_2d_geometry_update(it->second.obj_ptr.lock(), update_geom);
-      }
-      if (scene_update.commands_size() > 0) {
-        scene_update.set_window_id(target_window);
-        send_update(scene_update);
+    for (const auto& [object_id, tracked] : m_tracked_objects) {
+      if (tracked.obj_ptr.expired()) {
+        expired_ids.push_back(object_id);
       }
     }
-    dirty_set.clear();
+
+    for (const auto& id : expired_ids) {
+      remove_object_internal(id);
+    }
   }
 
-  void flush_dirty_set_2d_unlocked() { flush_dirty_set_unlocked(false); }
-  void flush_dirty_set_3d_unlocked() { flush_dirty_set_unlocked(true); }
+  void remove_object_internal(const std::string& object_id) {
+    auto it = m_tracked_objects.find(object_id);
+    if (it == m_tracked_objects.end()) return;
 
-  template <typename CmdType>
+    const auto& tracked = it->second;
+
+    if (auto obj = tracked.obj_ptr.lock()) {
+      obj->set_observer(nullptr);
+      m_object_ptr_to_id.erase(obj.get());
+    }
+
+    m_window_objects[tracked.window_name].erase(object_id);
+
+    if (tracked.is_3d) {
+      m_dirty_objects_3d[tracked.window_name].erase(object_id);
+    } else {
+      m_dirty_objects_2d[tracked.window_name].erase(object_id);
+    }
+
+    std::string window_id =
+        get_window_id_for_name(tracked.window_name, tracked.is_3d);
+    if (!window_id.empty()) {
+      if (tracked.is_3d) {
+        visualization::Scene3DUpdate u;
+        u.set_window_id(window_id);
+        u.add_commands()->mutable_delete_object()->set_id(object_id);
+        send_update(u);
+      } else {
+        visualization::Scene2DUpdate u;
+        u.set_window_id(window_id);
+        u.add_commands()->mutable_delete_object()->set_id(object_id);
+        send_update(u);
+      }
+    }
+
+    m_tracked_objects.erase(it);
+  }
+
+  void flush_dirty_set_2d_unlocked(const std::string& window_name) {
+    auto& dirty_set = m_dirty_objects_2d[window_name];
+    if (dirty_set.empty()) return;
+
+    std::string window_id = get_window_id_for_name(window_name, false);
+    if (window_id.empty()) return;
+
+    visualization::Scene2DUpdate scene_update;
+    scene_update.set_window_id(window_id);
+
+    std::vector<std::string> processed_ids;
+
+    for (const auto& object_id : dirty_set) {
+      auto it = m_tracked_objects.find(object_id);
+      if (it == m_tracked_objects.end()) continue;
+
+      const auto& tracked = it->second;
+      auto obj = tracked.obj_ptr.lock();
+      if (!obj) continue;
+
+      auto* update_geom =
+          scene_update.add_commands()->mutable_update_object_geometry();
+      update_geom->set_id(object_id);
+      populate_2d_geometry_update(obj, update_geom);
+
+      processed_ids.push_back(object_id);
+    }
+
+    for (const auto& id : processed_ids) {
+      dirty_set.erase(id);
+    }
+
+    if (scene_update.commands_size() > 0) {
+      send_update(scene_update);
+    }
+  }
+
+  void flush_dirty_set_3d_unlocked(const std::string& window_name) {
+    auto& dirty_set = m_dirty_objects_3d[window_name];
+    if (dirty_set.empty()) return;
+
+    std::string window_id = get_window_id_for_name(window_name, true);
+    if (window_id.empty()) return;
+
+    visualization::Scene3DUpdate scene_update;
+    scene_update.set_window_id(window_id);
+
+    std::vector<std::string> processed_ids;
+
+    for (const auto& object_id : dirty_set) {
+      auto it = m_tracked_objects.find(object_id);
+      if (it == m_tracked_objects.end()) continue;
+
+      const auto& tracked = it->second;
+      auto obj = tracked.obj_ptr.lock();
+      if (!obj) continue;
+
+      auto* update_geom =
+          scene_update.add_commands()->mutable_update_object_geometry();
+      update_geom->set_id(object_id);
+      populate_3d_geometry_update(obj, update_geom);
+
+      processed_ids.push_back(object_id);
+    }
+
+    for (const auto& id : processed_ids) {
+      dirty_set.erase(id);
+    }
+
+    if (scene_update.commands_size() > 0) {
+      send_update(scene_update);
+    }
+  }
+
+  std::string get_window_id_for_name(const std::string& window_name,
+                                     bool is_3d) {
+    auto window_it = m_windows.find(window_name);
+    if (window_it == m_windows.end() || window_it->second.is_3d != is_3d) {
+      return "";
+    }
+
+    for (const auto& pair : m_connections) {
+      return pair.first;
+    }
+    return "";
+  }
+
   void populate_2d_geometry(std::shared_ptr<Vis::Observable> obj,
-                            CmdType* cmd) {
+                            visualization::Add2DObject* cmd) {
     if (auto p = std::dynamic_pointer_cast<Vis::Point2D>(obj)) {
       to_proto(*p, cmd->mutable_point_2d());
     } else if (auto p = std::dynamic_pointer_cast<Vis::Pose2D>(obj)) {
@@ -395,15 +639,11 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       to_proto(*p, cmd->mutable_ball());
     } else if (auto p = std::dynamic_pointer_cast<Vis::Box3D>(obj)) {
       to_proto(*p, cmd->mutable_box_3d());
-    } else {
-      // It might be a 2D object being added to a 3D scene (e.g., for overlays).
-      populate_2d_geometry(obj, cmd);
     }
   }
 
   void populate_2d_geometry_update(std::shared_ptr<Vis::Observable> obj,
                                    visualization::Update2DObjectGeometry* cmd) {
-    // This is the completed implementation, mirroring populate_2d_geometry.
     if (auto p = std::dynamic_pointer_cast<Vis::Point2D>(obj)) {
       to_proto(*p, cmd->mutable_point_2d());
     } else if (auto p = std::dynamic_pointer_cast<Vis::Pose2D>(obj)) {
@@ -423,7 +663,6 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
 
   void populate_3d_geometry_update(std::shared_ptr<Vis::Observable> obj,
                                    visualization::Update3DObjectGeometry* cmd) {
-    // This is the completed implementation, mirroring populate_3d_geometry.
     if (auto p = std::dynamic_pointer_cast<Vis::Point3D>(obj)) {
       to_proto(*p, cmd->mutable_point_3d());
     } else if (auto p = std::dynamic_pointer_cast<Vis::Pose3D>(obj)) {
@@ -432,24 +671,28 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       to_proto(*p, cmd->mutable_ball());
     } else if (auto p = std::dynamic_pointer_cast<Vis::Box3D>(obj)) {
       to_proto(*p, cmd->mutable_box_3d());
-    } else {
-      // Handle update for 2D objects in a 3D scene.
-      populate_2d_geometry(obj, cmd);
     }
   }
 
   void schedule_auto_flush() {
     m_timer->expires_after(std::chrono::milliseconds(m_update_interval));
     m_timer->async_wait(
-        bind(&ServerImpl::handle_auto_flush, this, std::placeholders::_1));
+        std::bind(&ServerImpl::handle_auto_flush, this, std::placeholders::_1));
   }
 
   void handle_auto_flush(const boost::system::error_code& ec) {
-    if (ec) {  // Operation cancelled or other error
-      return;
+    if (ec) return;
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    cleanup_expired_objects();
+
+    for (const auto& [window_name, _] : m_dirty_objects_2d) {
+      flush_dirty_set_2d_unlocked(window_name);
     }
-    drawnow2D();
-    drawnow3D();
+    for (const auto& [window_name, _] : m_dirty_objects_3d) {
+      flush_dirty_set_3d_unlocked(window_name);
+    }
+
     if (m_auto_update_enabled && m_update_interval > 0) {
       schedule_auto_flush();
     }
@@ -476,15 +719,17 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
   }
 };
 
-// --- Singleton and public API forwarding implementation ---
+// --- VisualizationServer 实现 ---
 uint16_t VisualizationServer::m_port = 0;
 bool VisualizationServer::m_initialized = false;
+
 void VisualizationServer::init(uint16_t port) {
   if (!m_initialized) {
     m_port = port;
     m_initialized = true;
   }
 }
+
 VisualizationServer& VisualizationServer::get() {
   if (!m_initialized) {
     throw std::runtime_error(
@@ -493,84 +738,161 @@ VisualizationServer& VisualizationServer::get() {
   static VisualizationServer instance;
   return instance;
 }
+
 VisualizationServer::VisualizationServer()
     : m_impl(std::make_unique<ServerImpl>(m_port)) {}
+
 VisualizationServer::~VisualizationServer() = default;
 VisualizationServer::VisualizationServer(VisualizationServer&&) noexcept =
     default;
 VisualizationServer& VisualizationServer::operator=(
     VisualizationServer&&) noexcept = default;
+
+// Public API forwarding
 void VisualizationServer::run() { m_impl->run(); }
 void VisualizationServer::stop() { m_impl->stop(); }
 std::vector<std::string> VisualizationServer::get_connected_windows() {
   return m_impl->get_connected_windows();
 }
-void VisualizationServer::show(std::shared_ptr<Vis::Observable> obj,
-                               const std::string& id,
-                               const visualization::Material& material,
-                               bool is_3d) {
-  m_impl->show(obj, id, material, is_3d);
+
+void VisualizationServer::add(std::shared_ptr<Vis::Observable> obj,
+                              const std::string& window_name,
+                              const visualization::Material& material,
+                              bool is_3d) {
+  m_impl->add(obj, window_name, material, is_3d);
 }
-void VisualizationServer::remove(const std::string& id) { m_impl->remove(id); }
-void VisualizationServer::drawnow2D() { m_impl->drawnow2D(); }
-void VisualizationServer::drawnow3D() { m_impl->drawnow3D(); }
+
+void VisualizationServer::add(std::shared_ptr<Vis::Observable> obj,
+                              const size_t& window_idx,
+                              const visualization::Material& material,
+                              bool is_3d) {
+  m_impl->add(obj, "window_" + std::to_string(window_idx), material, is_3d);
+}
+
+void VisualizationServer::add(const Vis::Observable& obj,
+                              const std::string& window_name,
+                              const visualization::Material& material,
+                              bool is_3d) {
+  m_impl->add(obj, window_name, material, is_3d);
+}
+
+void VisualizationServer::add(const Vis::Observable& obj,
+                              const size_t& window_idx,
+                              const visualization::Material& material,
+                              bool is_3d) {
+  m_impl->add(obj, "window_" + std::to_string(window_idx), material, is_3d);
+}
+
+void VisualizationServer::clear_static(const std::string& window_name) {
+  m_impl->clear_static(window_name);
+}
+
+void VisualizationServer::clear_static(const size_t& window_idx) {
+  m_impl->clear_static("window_" + std::to_string(window_idx));
+}
+
+void VisualizationServer::clear_dynamic(const std::string& window_name) {
+  m_impl->clear_dynamic(window_name);
+}
+
+void VisualizationServer::clear_dynamic(const size_t& window_idx) {
+  m_impl->clear_dynamic("window_" + std::to_string(window_idx));
+}
+
+void VisualizationServer::clear(const std::string& window_name) {
+  m_impl->clear(window_name);
+}
+
+void VisualizationServer::clear(const size_t& window_idx) {
+  m_impl->clear("window_" + std::to_string(window_idx));
+}
+
+void VisualizationServer::drawnow(const std::string& name, const bool& is_3d) {
+  m_impl->drawnow(name, is_3d);
+}
+
+void VisualizationServer::drawnow(const size_t& window_idx, const bool& is_3d) {
+  m_impl->drawnow("window_" + std::to_string(window_idx), is_3d);
+}
+
 void VisualizationServer::set_auto_update_policy(bool enabled, int threshold,
                                                  int interval_ms) {
   m_impl->set_auto_update_policy(enabled, threshold, interval_ms);
 }
-void VisualizationServer::set_title(const std::string& window_id,
-                                    const std::string& title, bool is_3d) {
-  if (is_3d)
-    m_impl->send_window_command<visualization::Command3D,
-                                visualization::Scene3DUpdate>(
-        window_id,
-        [&](auto* cmd) { cmd->mutable_set_title()->set_title(title); });
-  else
-    m_impl->send_window_command<visualization::Command2D,
-                                visualization::Scene2DUpdate>(
-        window_id,
-        [&](auto* cmd) { cmd->mutable_set_title()->set_title(title); });
+
+void VisualizationServer::create_window(const std::string& name,
+                                        const bool& is_3d) {
+  m_impl->create_window(name, is_3d);
 }
-void VisualizationServer::set_grid_visible(const std::string& window_id,
+
+bool VisualizationServer::remove_window(const std::string& name,
+                                        const bool& is_3d) {
+  return m_impl->remove_window(name, is_3d);
+}
+
+void VisualizationServer::set_title(const std::string& old_name,
+                                    const std::string& name, bool is_3d) {
+  m_impl->send_window_command<visualization::Command3D,
+                              visualization::Scene3DUpdate>(
+      old_name, is_3d,
+      [&](auto* cmd) { cmd->mutable_set_title()->set_title(name); });
+}
+
+void VisualizationServer::set_title(const size_t& window_idx,
+                                    const std::string& name, bool is_3d) {
+  set_title("window_" + std::to_string(window_idx), name, is_3d);
+}
+
+void VisualizationServer::set_grid_visible(const std::string& name,
                                            bool visible, bool is_3d) {
-  if (is_3d)
-    m_impl->send_window_command<visualization::Command3D,
-                                visualization::Scene3DUpdate>(
-        window_id, [&](auto* cmd) {
-          cmd->mutable_set_grid_visible()->set_visible(visible);
-        });
-  else
-    m_impl->send_window_command<visualization::Command2D,
-                                visualization::Scene2DUpdate>(
-        window_id, [&](auto* cmd) {
-          cmd->mutable_set_grid_visible()->set_visible(visible);
-        });
+  m_impl->send_window_command<visualization::Command3D,
+                              visualization::Scene3DUpdate>(
+      name, is_3d, [&](auto* cmd) {
+        cmd->mutable_set_grid_visible()->set_visible(visible);
+      });
 }
-void VisualizationServer::set_axes_visible(const std::string& window_id,
+
+void VisualizationServer::set_grid_visible(const size_t& window_idx,
                                            bool visible, bool is_3d) {
-  if (is_3d)
-    m_impl->send_window_command<visualization::Command3D,
-                                visualization::Scene3DUpdate>(
-        window_id, [&](auto* cmd) {
-          cmd->mutable_set_axes_visible()->set_visible(visible);
-        });
-  else
-    m_impl->send_window_command<visualization::Command2D,
-                                visualization::Scene2DUpdate>(
-        window_id, [&](auto* cmd) {
-          cmd->mutable_set_axes_visible()->set_visible(visible);
-        });
+  set_grid_visible("window_" + std::to_string(window_idx), visible, is_3d);
 }
-void VisualizationServer::set_legend_visible(const std::string& window_id,
+
+void VisualizationServer::set_axes_visible(const std::string& name,
+                                           bool visible, bool is_3d) {
+  m_impl->send_window_command<visualization::Command3D,
+                              visualization::Scene3DUpdate>(
+      name, is_3d, [&](auto* cmd) {
+        cmd->mutable_set_axes_visible()->set_visible(visible);
+      });
+}
+
+void VisualizationServer::set_axes_visible(const size_t& window_idx,
+                                           bool visible, bool is_3d) {
+  set_axes_visible("window_" + std::to_string(window_idx), visible, is_3d);
+}
+
+void VisualizationServer::set_legend_visible(const std::string& name,
                                              bool visible, bool is_3d) {
-  if (is_3d)
-    m_impl->send_window_command<visualization::Command3D,
-                                visualization::Scene3DUpdate>(
-        window_id,
-        [&](auto* cmd) { cmd->mutable_set_legend()->set_visible(visible); });
-  else
-    m_impl->send_window_command<visualization::Command2D,
-                                visualization::Scene2DUpdate>(
-        window_id,
-        [&](auto* cmd) { cmd->mutable_set_legend()->set_visible(visible); });
+  m_impl->send_window_command<visualization::Command3D,
+                              visualization::Scene3DUpdate>(
+      name, is_3d,
+      [&](auto* cmd) { cmd->mutable_set_legend()->set_visible(visible); });
+}
+
+void VisualizationServer::set_legend_visible(const size_t& window_idx,
+                                             bool visible, bool is_3d) {
+  set_legend_visible("window_" + std::to_string(window_idx), visible, is_3d);
+}
+
+std::vector<std::string> VisualizationServer::get_windows_name(
+    const bool& is_3d) {
+  return m_impl->get_windows_name(is_3d);
+}
+
+size_t VisualizationServer::getTotalWindows() const {
+  return m_impl->getTotalWindows();
+}
+
+size_t VisualizationServer::getTotalObservables() const {
+  return m_impl->getTotalObservables();
 }

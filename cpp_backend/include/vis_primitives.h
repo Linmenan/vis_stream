@@ -319,4 +319,46 @@ class Box3D : public Observable {
   float m_x_len, m_y_len, m_z_len;
 };
 
+// --- 新增：颜色结构 ---
+struct ColorRGBA {
+  float r = 1.0f;
+  float g = 1.0f;
+  float b = 1.0f;
+  float a = 1.0f;
+
+  ColorRGBA() = default;
+  ColorRGBA(float red, float green, float blue, float alpha = 1.0f)
+      : r(red), g(green), b(blue), a(alpha) {}
+};
+
+// --- 新增：材质属性结构 ---
+struct MaterialProps {
+  std::string legend;       // 图例显示文本
+  ColorRGBA color;          // 主要颜色
+  float point_size = 3.0f;  // 点大小
+  float line_width = 1.0f;  // 线宽
+  bool filled = false;      // 是否填充
+  ColorRGBA fill_color;     // 填充颜色
+  bool legend_on = false;   // 是否显示图例
+
+  // 线型枚举
+  enum class LineStyle { SOLID = 0, DASHED = 1, DOTTED = 2 };
+  LineStyle line_style = LineStyle::SOLID;
+
+  // 点形状枚举
+  enum class PointShape { SQUARE = 0, CIRCLE = 1, CROSS = 2, DIAMOND = 3 };
+  PointShape point_shape = PointShape::CIRCLE;
+
+  // 构造函数
+  MaterialProps() = default;
+
+  // 便捷构造函数：只设置颜色
+  MaterialProps(const ColorRGBA& col, const std::string& leg = "")
+      : legend(leg), color(col) {}
+
+  // 便捷构造函数：RGB颜色
+  MaterialProps(float r, float g, float b, const std::string& leg = "")
+      : legend(leg), color(r, g, b) {}
+};
+
 }  // namespace Vis

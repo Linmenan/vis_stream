@@ -348,7 +348,7 @@ class CoordinateSystem {
         const paddedWidth = effectiveWidth * (1 + padding);
         const paddedHeight = effectiveHeight * (1 + padding);
 
-        // [关键修复] 根据画布宽高比计算视图尺寸
+        // 根据画布宽高比计算视图尺寸
         let viewWidth, viewHeight;
         if (paddedWidth / paddedHeight > this.canvasAspect) {
             // 数据更宽，以宽度为准
@@ -360,7 +360,7 @@ class CoordinateSystem {
             viewWidth = viewHeight * this.canvasAspect;
         }
 
-        // [关键修复] 设置正交相机参数
+        // 置正交相机参数
         // 正交相机的left/right/bottom/top是相对于相机位置的
         const halfWidth = viewWidth / 2;
         const halfHeight = viewHeight / 2;
@@ -373,7 +373,7 @@ class CoordinateSystem {
             target: controls ? controls.target.clone() : null
         };
 
-        // [关键修复] 设置相机参数 - 这是最重要的部分！
+        // 设置相机参数 - 这是最重要的部分！
         camera.left = -halfWidth;
         camera.right = halfWidth;
         camera.bottom = -halfHeight;
@@ -386,10 +386,10 @@ class CoordinateSystem {
         camera.position.set(centerX, centerY, 10); // Z位置不影响2D正交视图
         camera.lookAt(centerX, centerY, 0);
 
-        // [关键修复] 必须调用此方法使参数生效
+        // 必须调用此方法使参数生效
         camera.updateProjectionMatrix();
 
-        // [关键修复] 同步OrbitControls
+        // 同步OrbitControls
         if (controls) {
             controls.target.set(centerX, centerY, 0);
             controls.update();
@@ -419,7 +419,7 @@ class CoordinateSystem {
             Math.abs(dataBounds.right - dataBounds.left) < 1e6 &&
             Math.abs(dataBounds.top - dataBounds.bottom) < 1e6;
     }
-    // [新增] 重置到默认视图的方法
+    // 重置到默认视图的方法
     resetToDefault(camera, controls = null) {
         console.log('🔄 重置到默认视图');
 
@@ -481,7 +481,7 @@ class DynamicGrid {
     update() {
         try {
             const worldBounds = this.coordinateSystem.getWorldBounds(this.camera, this.controls);
-            // [关键修复] 添加边界验证
+            // 添加边界验证
             if (!this.validateBounds(worldBounds)) {
                 console.warn('Invalid world bounds, skipping grid update');
                 return;
@@ -493,7 +493,7 @@ class DynamicGrid {
                 console.warn('Invalid view dimensions, skipping grid update');
                 return;
             }
-            // [关键修复] 动态计算扩展范围，确保完全覆盖
+            // 动态计算扩展范围，确保完全覆盖
             const dynamicPadding = this.calculateDynamicPadding(viewWidth, viewHeight);
 
             const extendedBounds = {
@@ -561,7 +561,7 @@ class DynamicGrid {
             console.error('网格更新失败:', error);
         }
     }
-    // [新增] 边界验证方法
+    // 边界验证方法
     validateBounds(bounds) {
         return bounds &&
             isFinite(bounds.left) && isFinite(bounds.right) &&
@@ -571,7 +571,7 @@ class DynamicGrid {
             Math.abs(bounds.right - bounds.left) < 1e6 && // 避免过大范围
             Math.abs(bounds.top - bounds.bottom) < 1e6;
     }
-    // [新增] 动态计算填充因子，根据缩放级别调整
+    // 动态计算填充因子，根据缩放级别调整
     calculateDynamicPadding(viewWidth, viewHeight) {
         const maxDimension = Math.max(Math.abs(viewWidth), Math.abs(viewHeight));
 
@@ -682,18 +682,18 @@ class Plotter2D extends BasePlotter {
             MIDDLE: THREE.MOUSE.DOLLY,
             RIGHT: THREE.MOUSE.PAN
         };
-        // [关键修复] 缩放限制
+        // 缩放限制
         this.controls.minZoom = 0.05;
         this.controls.maxZoom = 50;
         this.controls.zoomSpeed = 1.0;
 
-        // [重要] 设置合适的初始目标点
+        // 设置合适的初始目标点
         this.controls.target.set(0, 0, 0);
         this.controls.update();
 
         this.dynamicGrid = new DynamicGrid(this.scene, this.camera, this.coordinateSystem, this.controls);
 
-        // [关键修复] 添加缩放事件监听
+        // 添加缩放事件监听
         this.controls.addEventListener('change', this.onControlsChange);
         // 保存最后鼠标位置，用于缩放时更新
         this.lastMousePosition = { x: 0, y: 0 };
@@ -731,7 +731,7 @@ class Plotter2D extends BasePlotter {
         this.animate();
 
     }
-    // [新增] 统一的控制器变化处理
+    // 统一的控制器变化处理
     onControlsChange = () => {
         this.camera.updateProjectionMatrix();
 
@@ -740,11 +740,11 @@ class Plotter2D extends BasePlotter {
             this.dynamicGrid.update();
         }
 
-        // [关键修复] 缩放时也更新十字光标坐标
+        // 缩放时也更新十字光标坐标
         this.updateCrosshairCoordinates(this.lastMousePosition.x, this.lastMousePosition.y);
     }
 
-    // [重构] 提取坐标更新逻辑到单独方法
+    // 提取坐标更新逻辑到单独方法
     updateCrosshairCoordinates(mouseX, mouseY) {
         if (!this.crosshairX || !this.crosshairY || !this.tooltipEl) return;
 
@@ -779,7 +779,7 @@ class Plotter2D extends BasePlotter {
     };
 
     /**
-     * [新增] 处理动态适应的核心逻辑
+     * 处理动态适应的核心逻辑
      */
     handleDynamicFit = () => {
         // 检查场景是否有变化
@@ -799,7 +799,7 @@ class Plotter2D extends BasePlotter {
         }
     };
     /**
-     * [新增] 计算场景哈希值，用于检测变化
+     * 计算场景哈希值，用于检测变化
      */
     calculateSceneHash = () => {
         if (this.sceneObjects.size === 0) {
@@ -825,7 +825,7 @@ class Plotter2D extends BasePlotter {
         return hash || 'no_changes';
     };
     /**
-     * [新增] 执行动态适应（优化版本）
+     * 执行动态适应（优化版本）
      */
     executeDynamicFit = () => {
         if (this.sceneObjects.size === 0) {
@@ -847,7 +847,7 @@ class Plotter2D extends BasePlotter {
                 top: sceneBBox.max.y
             };
 
-            // [优化] 只在边界变化较大时才重新适应
+            // 只在边界变化较大时才重新适应
             if (this.shouldRefit(dataBounds)) {
                 this.coordinateSystem.fitToData(dataBounds, this.camera, this.controls, this.dynamicFitPadding);
                 this.lastDataBounds = dataBounds;
@@ -864,7 +864,7 @@ class Plotter2D extends BasePlotter {
         }
     };
     /**
-     * [新增] 判断是否需要重新适应（避免频繁调整）
+     * 判断是否需要重新适应（避免频繁调整）
      */
     shouldRefit = (newBounds) => {
         // return true;
@@ -895,7 +895,7 @@ class Plotter2D extends BasePlotter {
             centerYChange > maxDimension * threshold);
     };
     /**
-     * [修复] 动态适应开关处理
+     * 动态适应开关处理
      */
     onDynamicFitChange = (event) => {
         this.isDynamicFitEnabled = event.target.checked;
@@ -915,8 +915,8 @@ class Plotter2D extends BasePlotter {
     };
 
     /**
-      * [优化] 适应视图到数据（用于手动调用）
-      */
+     * 适应视图到数据（用于手动调用）
+     */
     fitViewToData = (padding = 0.1) => {
         // console.log('🎯 手动执行适应视图到数据');
         this.dynamicFitPadding = padding; // 更新填充值
@@ -956,7 +956,7 @@ class Plotter2D extends BasePlotter {
         }
     };
     /**
-     * [新增] 精确计算边界框
+     * 精确计算边界框
      */
     calculateAccurateBoundingBox() {
         const bbox = new THREE.Box3();
@@ -986,7 +986,7 @@ class Plotter2D extends BasePlotter {
     }
 
     /**
-    * [关键修复] 重置视角方法
+    * 重置视角方法
     */
     resetView = () => {
         console.log('🔁 用户点击重置视角');
@@ -1007,7 +1007,7 @@ class Plotter2D extends BasePlotter {
         this.forceImmediateRender();
     };
     /**
-    * [修复] 重置到默认视图
+    * 重置到默认视图
     */
     resetToDefaultView = () => {
         console.log('🏠 重置到默认视图');
@@ -1015,7 +1015,7 @@ class Plotter2D extends BasePlotter {
         this.forceImmediateRender();
     };
     /**
-     * [新增] 强制立即渲染
+     * 强制立即渲染
      */
     forceImmediateRender = () => {
         // 更新网格
@@ -1050,7 +1050,7 @@ class Plotter2D extends BasePlotter {
         this.tooltipEl.style.display = 'none';
     };
     /**
-    * [修复] 窗口大小变化处理
+    * 窗口大小变化处理
     */
     onWindowResize = () => {
         this.coordinateSystem.updateCanvasSize();
@@ -1113,7 +1113,7 @@ class Plotter2D extends BasePlotter {
                     top: props.getYMax()
                 };
 
-                // [关键修复] 传递controls参数
+                // 传递controls参数
                 this.coordinateSystem.fitToData(dataBounds, this.camera, this.controls);
 
                 // 强制更新网格
@@ -1132,7 +1132,7 @@ class Plotter2D extends BasePlotter {
         super.onDisconnect();
         this.titleEl.innerText = this.titleEl.innerText + " (连接已断开)";
         this.dynamicFitToggle.disabled = true;
-        // [修正] 关键修复：无论之前状态如何，断开连接时必须重新启用用户控制器
+        // 关键修复：无论之前状态如何，断开连接时必须重新启用用户控制器
         this.isDynamicFitEnabled = false;
         this.controls.enabled = true;
     }
@@ -1175,7 +1175,7 @@ class Plotter2D extends BasePlotter {
         this.dynamicGrid.destroy();
     }
 }
-// [新增] 一个辅助对象，用于创建和缓存点的纹理
+// 一个辅助对象，用于创建和缓存点的纹理
 const PointTextureFactory = {
     cache: {},
     getTexture: function (shape) {
@@ -1426,7 +1426,7 @@ class ObjectFactory {
                 const point = new THREE.Points(pointGeom, pointMat); group.add(arrow, point); obj = group;
                 break;
             }
-            // [修正] 为 Line2D 单独创建一个 case，确保它使用 THREE.Line
+            // 为 Line2D 单独创建一个 case，确保它使用 THREE.Line
             case proto.visualization.Add2DObject.GeometryDataCase.LINE_2D: {
                 const geometry = new THREE.BufferGeometry();
                 const material = this.createLineMaterial(mat);
