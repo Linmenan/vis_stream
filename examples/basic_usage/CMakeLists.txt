@@ -1,11 +1,23 @@
+# examples/basic_usage/CMakeLists.txt
 cmake_minimum_required(VERSION 3.15)
 project(ExampleBasicUsage)
 
 # 创建可执行文件
-add_executable(example_3d_usage main_3d.cpp)
-add_executable(example_2d_usage main_2d.cpp)
-
+add_executable(basic_geometries_demo basic_geometries_demo.cpp)
+add_executable(window_management_demo window_management_demo.cpp)
+add_executable(complex_animations_demo complex_animations_demo.cpp)
+add_executable(object_management_demo object_management_demo.cpp)
 # 链接我们的核心库！
-# CMake会自动处理依赖关系，将vis_stream_core库需要的所有头文件路径和链接库都传递过来。
-target_link_libraries(example_3d_usage PRIVATE vis_stream_core)
-target_link_libraries(example_2d_usage PRIVATE vis_stream_core)
+target_link_libraries(basic_geometries_demo  PRIVATE vis_stream_core)
+target_link_libraries(window_management_demo  PRIVATE vis_stream_core)
+target_link_libraries(complex_animations_demo  PRIVATE vis_stream_core)
+target_link_libraries(object_management_demo  PRIVATE vis_stream_core)
+
+# --- 新增：安装示例程序（可选） ---
+install(TARGETS 
+  basic_geometries_demo 
+  window_management_demo 
+  complex_animations_demo 
+  object_management_demo 
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
