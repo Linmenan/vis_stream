@@ -147,6 +147,17 @@ html {
     gap: 10px;
 }
 
+.plot-window-3d .content-area {
+    display: grid;
+    grid-template-columns: 1fr 200px;
+    grid-template-rows: 1fr;
+    grid-template-areas: "canvas legend";
+    gap: 1em;
+    flex: 1;
+    min-height: 0;
+    /* 重要：允许内容区域收缩 */
+}
+
 .plot-window-3d .figure-title {
     text-align: center;
     margin: 0;
@@ -166,6 +177,33 @@ html {
     border-radius: 4px;
 }
 
+.plot-window-3d .legend-container {
+    grid-area: legend;
+    overflow-y: auto;
+    background-color: rgba(247, 247, 255, 0.9);
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    padding: 15px;
+    font-size: 0.9em;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 100%;
+    backdrop-filter: blur(5px);
+}
+
+/* 3D图例项特殊样式 */
+.plot-window-3d .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    background-color: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
 .plot-window-3d .toolbar {
     padding: 15px;
     background-color: #f8f9fa;
@@ -175,6 +213,76 @@ html {
     justify-content: flex-end;
     align-items: center;
     gap: 1em;
+}
+
+.plot-window-3d .legend-item:hover {
+    background-color: rgba(255, 255, 255, 0.9);
+    transform: translateX(2px);
+}
+
+.plot-window-3d .legend-color-swatch {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    flex-shrink: 0;
+    border-radius: 3px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.plot-window-3d .legend-label {
+    color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.85em;
+    font-weight: 500;
+}
+
+/* 3D图例滚动条 */
+.plot-window-3d .legend-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.plot-window-3d .legend-container::-webkit-scrollbar-track {
+    background: rgba(241, 241, 241, 0.5);
+    border-radius: 3px;
+}
+
+.plot-window-3d .legend-container::-webkit-scrollbar-thumb {
+    background: rgba(193, 193, 193, 0.7);
+    border-radius: 3px;
+}
+
+.plot-window-3d .legend-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(168, 168, 168, 0.8);
+}
+
+/* 响应式设计：小屏幕时图例放在下方 */
+@media (max-width: 1200px) {
+    .plot-window-3d .content-area {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr auto;
+        grid-template-areas:
+            "canvas"
+            "legend";
+        gap: 0.8em;
+    }
+
+    .plot-window-3d .legend-container {
+        max-height: 150px;
+    }
+}
+
+@media (max-width: 768px) {
+    .plot-window-3d .content-area {
+        grid-template-rows: 1fr 120px;
+    }
+
+    .plot-window-3d .legend-container {
+        max-height: 120px;
+        padding: 10px;
+    }
 }
 
 /* 通用工具栏样式 */

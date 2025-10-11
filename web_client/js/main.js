@@ -21,7 +21,7 @@ class AppManager {
         this.windowContainer.id = 'window-container';
         this.windowContainer.style.cssText = `
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr;
             gap: 10px;
             padding: 10px;
             height: 100vh;
@@ -143,8 +143,11 @@ class AppManager {
         } else { // 3D
             const figureTemplate = `
                 <div class="figure-container">
-                    <h2 class="figure-title" id="title-${windowId}">${windowName}</h2>  <!-- 使用窗口名称 -->
-                    <div class="canvas-container" id="canvas-${windowId}"></div>
+                    <h2 class="figure-title" id="title-${windowId}">${windowName}</h2>
+                    <div class="content-area">
+                        <div class="canvas-container" id="canvas-${windowId}"></div>
+                        <div class="legend-container" id="legend-${windowId}"></div>
+                    </div>
                     <div class="toolbar">
                         <button id="reset-view-${windowId}">重置视角</button>
                     </div>
@@ -277,7 +280,11 @@ class Plotter3D extends BasePlotter {
         // UI元素
         this.titleEl = container.querySelector(`#title-${windowId}`);
         this.canvasContainer = container.querySelector(`#canvas-${windowId}`);
+        this.legendContainer = container.querySelector(`#legend-${windowId}`);
         this.resetBtn = container.querySelector(`#reset-view-${windowId}`);
+
+        // 图例元素管理
+        this.legendElements = new Map();
 
         // console.log(`📐 3D容器尺寸:`, {
         //     container: this.canvasContainer.clientWidth,
@@ -350,6 +357,8 @@ class Plotter3D extends BasePlotter {
                     obj.name = cmd.getId();
                     this.sceneObjects.set(cmd.getId(), obj);
                     this.scene.add(obj);
+                    // 添加图例
+                    this.updateLegend(cmd.getId(), cmd.getMaterial());
                 }
                 break;
             }
@@ -374,6 +383,9 @@ class Plotter3D extends BasePlotter {
                     this.titleEl.innerText = command.getSetTitle().getTitle();
                 }
                 break;
+            case proto.visualization.Command3D.CommandTypeCase.SET_LEGEND:
+                // 处理图例设置命令（如果需要）
+                break;
             case proto.visualization.Command3D.CommandTypeCase.CREATE_WINDOW:
                 // 窗口创建命令已经在AppManager中处理，这里可以记录日志
                 // console.log("✅ 3D窗口创建命令已处理:", this.windowId);
@@ -386,6 +398,39 @@ class Plotter3D extends BasePlotter {
                 console.warn("⚠️ 未知的3D命令类型:", commandType);
         }
     }
+    /**
+         * 更新3D窗口图例
+         */
+    updateLegend(id, material) {
+        // console.log(`📝 更新3D图例: ${id}`);
+
+        if (!material) { // 对应对象删除
+            if (this.legendElements.has(id)) {
+                this.legendElements.get(id).remove();
+                this.legendElements.delete(id);
+            }
+            return;
+        }
+
+        const legendText = material.getLegend();
+        if (!legendText) return;
+
+        let legendItem = this.legendElements.get(id);
+        if (!legendItem) {
+            legendItem = document.createElement('div');
+            legendItem.className = 'legend-item';
+            this.legendContainer.appendChild(legendItem);
+            this.legendElements.set(id, legendItem);
+        }
+
+        const color = material.getColor();
+        const colorHex = new THREE.Color(color.getR(), color.getG(), color.getB()).getHexString();
+
+        legendItem.innerHTML = `
+            <span class="legend-color-swatch" style="background-color: #${colorHex};"></span>
+            <span class="legend-label">${legendText}</span>
+        `;
+    }
 
     onDisconnect() {
         super.onDisconnect();
@@ -393,6 +438,13 @@ class Plotter3D extends BasePlotter {
     }
     destroy() {
         console.log(`🧹 开始销毁3D Plotter: ${this.windowId}`);
+        // 清理图例
+        if (this.legendElements) {
+            this.legendElements.forEach((element, id) => {
+                element.remove();
+            });
+            this.legendElements.clear();
+        }
 
         // 移除DOM事件监听器
         if (this.resetBtn) {
@@ -600,7 +652,9 @@ class CoordinateSystem {
 
         // 根据画布宽高比计算视图尺寸
         let viewWidth, viewHeight;
-        if (paddedWidth / paddedHeight > this.canvasAspect) {
+        const dataAspect = dataWidth / dataHeight;
+
+        if (dataAspect > this.canvasAspect) {
             // 数据更宽，以宽度为准
             viewWidth = paddedWidth;
             viewHeight = viewWidth / this.canvasAspect;
@@ -610,7 +664,6 @@ class CoordinateSystem {
             viewWidth = viewHeight * this.canvasAspect;
         }
 
-        // 置正交相机参数
         // 正交相机的left/right/bottom/top是相对于相机位置的
         const halfWidth = viewWidth / 2;
         const halfHeight = viewHeight / 2;
@@ -1073,7 +1126,15 @@ class Plotter2D extends BasePlotter {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0xffffff);
 
-        this.camera = new THREE.OrthographicCamera(-10, 10, 10, -10, -10, 10);
+        const aspect = this.coordinateSystem.canvasWidth / this.coordinateSystem.canvasHeight;
+        const viewSize = 10;
+        this.camera = new THREE.OrthographicCamera(
+            -viewSize * aspect,  // left
+            viewSize * aspect,   // right
+            viewSize,            // top
+            -viewSize,           // bottom
+            -10, 10
+        );
         this.camera.zoom = 1;
         this.camera.updateProjectionMatrix();
 
@@ -1438,7 +1499,16 @@ class Plotter2D extends BasePlotter {
     */
     onWindowResize = () => {
         this.coordinateSystem.updateCanvasSize();
-        this.renderer.setSize(this.coordinateSystem.canvasWidth, this.coordinateSystem.canvasHeight);
+        const width = this.coordinateSystem.canvasWidth;
+        const height = this.coordinateSystem.canvasHeight;
+
+        // 更新渲染器尺寸
+        this.renderer.setSize(width, height);
+        // 更新相机比例
+        const aspect = width / height;
+        this.camera.left = -this.camera.top * aspect;
+        this.camera.right = this.camera.top * aspect;
+        this.camera.updateProjectionMatrix();
 
         if (this.isDynamicFitEnabled) {
             // 延迟执行避免频繁调整
