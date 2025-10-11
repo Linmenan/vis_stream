@@ -5,63 +5,184 @@ import { OrbitControls } from './lib/OrbitControls.js';
 const proto = window.proto;
 
 /**
- * Manages the overall application state, creating the appropriate
- * 2D or 3D plotter based on messages from the backend.
+ * Manages the overall application state, creating and managing multiple
+ * 2D and 3D windows based on messages from the backend.
  */
 class AppManager {
     constructor() {
-        this.activePlotter = null;
+        this.plotters = new Map(); // window_id -> plotter
+        this.windowContainer = null;
+        this.createWindowContainer();
+    }
+
+    createWindowContainer() {
+        // 创建主容器
+        this.windowContainer = document.createElement('div');
+        this.windowContainer.id = 'window-container';
+        this.windowContainer.style.cssText = `
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            padding: 10px;
+            height: 100vh;
+            width: 100vw;
+            box-sizing: border-box;
+        `;
+        document.body.appendChild(this.windowContainer);
     }
 
     handleUpdate(sceneUpdate, updateType) {
-        if (!this.activePlotter || this.activePlotter.type !== updateType) {
-            this.createPlotter(updateType);
-        }
+        const windowId = sceneUpdate.getWindowId();
+        const windowName = sceneUpdate.getWindowName();
         const commands = sceneUpdate.getCommandsList();
-        commands.forEach(cmd => this.activePlotter.dispatch(cmd));
-    }
 
-    createPlotter(type) {
-        if (this.activePlotter) {
-            this.activePlotter.destroy();
+        // console.log(`🔄 处理更新 - 窗口: ${windowId}, 类型: ${updateType}, 命令数量: ${commands.length}`);
+
+        // 首先检查命令列表中是否包含删除窗口命令
+        for (let cmd of commands) {
+            const commandType = cmd.getCommandTypeCase();
+            // console.log(`  检查命令: 类型=${commandType}, 名称=${this.getCommandTypeName(commandType)}`);
+
+            if (updateType === '2D' &&
+                commandType === proto.visualization.Command2D.CommandTypeCase.DELETE_WINDOW) {
+                // console.log("🗑️ 收到2D窗口删除命令，窗口ID:", windowId);
+                this.removePlotter(windowId);
+                return; // 直接返回，不处理其他命令
+            } else if (updateType === '3D' &&
+                commandType === proto.visualization.Command3D.CommandTypeCase.DELETE_WINDOW) {
+                // console.log("🗑️ 收到3D窗口删除命令，窗口ID:", windowId);
+                this.removePlotter(windowId);
+                return; // 直接返回，不处理其他命令
+            }
         }
-        while (document.body.firstChild) {
-            document.body.removeChild(document.body.firstChild);
+        // 检查创建窗口命令
+        for (let cmd of commands) {
+            const commandType = cmd.getCommandTypeCase();
+            if ((updateType === '2D' && commandType === proto.visualization.Command2D.CommandTypeCase.CREATE_WINDOW) ||
+                (updateType === '3D' && commandType === proto.visualization.Command3D.CommandTypeCase.CREATE_WINDOW)) {
+                // console.log("🪟 收到创建窗口命令，窗口ID:", windowId);
+                // 如果窗口已存在，警告并忽略
+                if (this.plotters.has(windowId)) {
+                    console.warn("🔄 窗口已存在！！！", windowId);
+                    return;
+                    // this.removePlotter(windowId);
+                }
+            }
         }
+        // 如果没有删除窗口命令，继续正常处理
+        if (!this.plotters.has(windowId)) {
+            // console.log("➕ 创建新plotter:", windowId, "类型:", updateType);
+            this.createPlotter(windowId, windowName, updateType);
+        } else {
+            // console.log("📝 使用现有plotter:", windowId);
+        }
+
+        const plotter = this.plotters.get(windowId);
+        commands.forEach((cmd, index) => {
+            const commandType = cmd.getCommandTypeCase();
+            console.log(`  执行命令 ${index}: 类型=${commandType}, 名称=${this.getCommandTypeName(commandType)}`);
+            plotter.dispatch(cmd);
+        });
+    }
+    // 添加命令类型名称映射
+    getCommandTypeName(commandType) {
+        const typeMap = {
+            1: 'ADD_OBJECT',
+            2: 'UPDATE_OBJECT_GEOMETRY',
+            3: 'UPDATE_OBJECT_PROPERTIES',
+            4: 'DELETE_OBJECT',
+            10: 'SET_GRID_VISIBLE',
+            11: 'SET_AXES_VISIBLE',
+            12: 'SET_TITLE',
+            13: 'SET_LEGEND',
+            14: 'SET_AXIS_PROPERTIES',
+            15: 'CREATE_WINDOW',
+            16: 'DELETE_WINDOW'
+        };
+        return typeMap[commandType] || `UNKNOWN_${commandType}`;
+    }
+    createPlotter(windowId, windowName, type) {
+        // console.log(`🔄 创建plotter: ${windowId}, 名称: ${windowName}, 类型: ${type}`);
+
+        const windowDiv = document.createElement('div');
+        windowDiv.id = `window-${windowId}`;
+
+        const windowType = type === '3D' ? 'plot-window-3d' : 'plot-window-2d';
+        windowDiv.className = `plot-window ${windowType}`;
+
+        this.windowContainer.appendChild(windowDiv);
 
         if (type === '2D') {
             const figureTemplate = `
-                <div id="figure-container" class="figure-container">
-                    
-                    <h2 id="figure-title" class="figure-title">2D Plot</h2>
+                <div class="figure-container">
+                    <h2 class="figure-title" id="title-${windowId}">${windowName}</h2>  <!-- 使用窗口名称 -->
                     
                     <div class="plot-area">
-                        <div id="y-axis-container" class="axis-container y-axis"></div>
-                        <div id="canvas-container" class="canvas-container">
-                            <div id="crosshair-x" class="crosshair"></div>
-                            <div id="crosshair-y" class="crosshair"></div>
-                            <div id="coord-tooltip" class="coord-tooltip"></div>
+                        <div class="axis-container y-axis" id="y-axis-${windowId}"></div>
+                        <div class="canvas-container" id="canvas-${windowId}">
+                            <div class="crosshair crosshair-x" id="crosshair-x-${windowId}"></div>
+                            <div class="crosshair crosshair-y" id="crosshair-y-${windowId}"></div>
+                            <div class="coord-tooltip" id="tooltip-${windowId}"></div>
                         </div>
-                        <div id="x-axis-container" class="axis-container x-axis"></div>
+                        <div class="axis-container x-axis" id="x-axis-${windowId}"></div>
                     </div>
 
-                    <div id="legend-container" class="legend-container"></div>
+                    <div class="legend-container" id="legend-${windowId}"></div>
 
-                    <div id="toolbar" class="toolbar">
+                    <div class="toolbar">
                         <label class="toolbar-label">
-                            <input type="checkbox" id="dynamic-fit-toggle">
+                            <input type="checkbox" id="dynamic-fit-${windowId}">
                             动态适应
                         </label>
-                        <button id="reset-view-btn">还原视角</button>
+                        <button id="reset-view-${windowId}">还原视角</button>
                     </div>
-                    
                 </div>`;
-            document.body.innerHTML = figureTemplate;
-            const container = document.getElementById('figure-container');
-            this.activePlotter = new Plotter2D(container);
+
+            windowDiv.innerHTML = figureTemplate;
+            this.plotters.set(windowId, new Plotter2D(windowDiv, windowId));
         } else { // 3D
-            this.activePlotter = new Plotter3D(document.body);
+            const figureTemplate = `
+                <div class="figure-container">
+                    <h2 class="figure-title" id="title-${windowId}">${windowName}</h2>  <!-- 使用窗口名称 -->
+                    <div class="canvas-container" id="canvas-${windowId}"></div>
+                    <div class="toolbar">
+                        <button id="reset-view-${windowId}">重置视角</button>
+                    </div>
+                </div>`;
+
+            windowDiv.innerHTML = figureTemplate;
+            this.plotters.set(windowId, new Plotter3D(windowDiv, windowId));
         }
+    }
+
+    removePlotter(windowId) {
+        // console.log("🔍 尝试删除plotter:", windowId);
+
+        if (this.plotters.has(windowId)) {
+            const plotter = this.plotters.get(windowId);
+            // console.log("✅ 找到plotter，开始销毁:", windowId);
+
+            plotter.destroy();
+            this.plotters.delete(windowId);
+
+            const windowDiv = document.getElementById(`window-${windowId}`);
+            if (windowDiv) {
+                // console.log("✅ 找到DOM元素，开始移除:", `window-${windowId}`);
+                windowDiv.remove();
+            } else {
+                console.warn("⚠️ 未找到对应的DOM元素:", `window-${windowId}`);
+            }
+
+            // console.log("🗑️ 成功删除窗口:", windowId);
+        } else {
+            console.warn("⚠️ 尝试删除不存在的plotter:", windowId);
+        }
+    }
+
+    onDisconnect() {
+        this.plotters.forEach((plotter, windowId) => {
+            plotter.onDisconnect();
+        });
     }
 }
 
@@ -69,8 +190,9 @@ class AppManager {
  * Base class for plotters to share common functionality.
  */
 class BasePlotter {
-    constructor(container) {
+    constructor(container, windowId) {
         this.container = container;
+        this.windowId = windowId;
         this.sceneObjects = new Map();
         this.factory = new ObjectFactory();
         window.addEventListener('resize', this.onWindowResize, false);
@@ -83,6 +205,7 @@ class BasePlotter {
     }
 
     removeObject(objectId) {
+        console.log(`🧹 开始销毁图元id: ${objectId} `);
         if (this.sceneObjects.has(objectId)) {
             const obj = this.sceneObjects.get(objectId);
             this.scene.remove(obj);
@@ -96,13 +219,47 @@ class BasePlotter {
     }
 
     destroy() {
+        // console.log(`🧹 开始销毁Plotter: ${this.windowId}`);
+
+        // 先停止动画循环
+        if (this.animationFrameId) {
+            cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
+        }
+
+        // 移除事件监听器
         window.removeEventListener('resize', this.onWindowResize, false);
-        cancelAnimationFrame(this.animationFrameId);
-        // Clean up scene objects
-        this.sceneObjects.forEach(obj => this.removeObject(obj.name));
+
+        // 清理场景对象
+        this.sceneObjects.forEach((obj, objectId) => {
+            this.removeObject(objectId);
+        });
+        this.sceneObjects.clear();
+
+        // 清理渲染器（放在最后）
+        if (this.renderer) {
+            // 先从DOM中移除canvas
+            const canvas = this.renderer.domElement;
+            if (canvas && canvas.parentNode) {
+                canvas.parentNode.removeChild(canvas);
+            }
+
+            // 然后清理WebGL资源
+            this.renderer.dispose();
+            this.renderer.forceContextLoss();
+            this.renderer = null;
+        }
+
+        // 清理控制器
+        if (this.controls) {
+            this.controls.dispose();
+            this.controls = null;
+        }
+
+        // console.log(`✅ Plotter销毁完成: ${this.windowId}`);
     }
     onDisconnect() {
-        console.log(`${this.type} Plotter is now in static mode (disconnected).`);
+        // console.log(`${this.type} Plotter is now in static mode (disconnected).`);
     }
 }
 
@@ -110,42 +267,78 @@ class BasePlotter {
  * Manages the immersive 3D scene.
  */
 class Plotter3D extends BasePlotter {
-    constructor(container) {
-        super(container);
+    constructor(container, windowId) {
+        super(container, windowId);
         this.type = '3D';
+        this.windowId = windowId;
 
+        // console.log(`🎮 Plotter3D初始化: ${windowId}`);
+
+        // UI元素
+        this.titleEl = container.querySelector(`#title-${windowId}`);
+        this.canvasContainer = container.querySelector(`#canvas-${windowId}`);
+        this.resetBtn = container.querySelector(`#reset-view-${windowId}`);
+
+        // console.log(`📐 3D容器尺寸:`, {
+        //     container: this.canvasContainer.clientWidth,
+        //     height: this.canvasContainer.clientHeight
+        // });
+
+        // Three.js 初始化
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x222222);
-        // 初始化透视相机
-        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+        this.camera = new THREE.PerspectiveCamera(75, this.canvasContainer.clientWidth / this.canvasContainer.clientHeight, 0.1, 1000);
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
 
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.container.appendChild(this.renderer.domElement);
+        this.renderer.setSize(this.canvasContainer.clientWidth, this.canvasContainer.clientHeight);
+        this.canvasContainer.appendChild(this.renderer.domElement);
 
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        // 灯光
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
         this.scene.add(ambientLight);
         const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(5, 10, 7.5);
+        directionalLight.position.set(10, 20, 15);
         this.scene.add(directionalLight);
 
+        // 控制器
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-        this.gridHelper = new THREE.GridHelper(100, 100);
+
+        // 网格和坐标轴
+        this.gridHelper = new THREE.GridHelper(20, 20);
         this.axesHelper = new THREE.AxesHelper(5);
         this.scene.add(this.gridHelper, this.axesHelper);
 
-        this.camera.position.set(5, 5, 5);
+        // 相机位置 - 确保可以看到物体
+        this.camera.position.set(10, 10, 10);
         this.controls.update();
+
+        // console.log('✅ Plotter3D初始化完成');
+
+        // 事件
+        this.resetBtn.addEventListener('click', this.resetView);
 
         this.animate();
     }
 
     onWindowResize = () => {
-        this.camera.aspect = window.innerWidth / window.innerHeight;
-        this.camera.updateProjectionMatrix();
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-    }
+        // 获取容器的最新尺寸
+        const container = this.canvasContainer;
+        const width = container.clientWidth;
+        const height = container.clientHeight;
 
+        this.camera.aspect = width / height;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(width, height);
+
+        // console.log(`🔄 3D窗口调整尺寸: ${width}x${height}`);
+    }
+    resetView = () => {
+        this.camera.position.set(5, 5, 5);
+        this.controls.target.set(0, 0, 0);
+        this.controls.update();
+        // console.log('🔄 3D视角重置');
+    }
     dispatch(command) {
         const commandType = command.getCommandTypeCase();
         switch (commandType) {
@@ -177,14 +370,71 @@ class Plotter3D extends BasePlotter {
                 this.axesHelper.visible = command.getSetAxesVisible().getVisible();
                 break;
             case proto.visualization.Command3D.CommandTypeCase.SET_TITLE:
-                document.title = command.getSetTitle().getTitle();
+                if (this.titleEl) {
+                    this.titleEl.innerText = command.getSetTitle().getTitle();
+                }
                 break;
+            case proto.visualization.Command3D.CommandTypeCase.CREATE_WINDOW:
+                // 窗口创建命令已经在AppManager中处理，这里可以记录日志
+                // console.log("✅ 3D窗口创建命令已处理:", this.windowId);
+                break;
+            case proto.visualization.Command3D.CommandTypeCase.DELETE_WINDOW:
+                // 删除窗口命令在AppManager级别处理，这里可以记录日志
+                // console.log("🔄 3D窗口收到删除命令，准备销毁:", this.windowId);
+                break;
+            default:
+                console.warn("⚠️ 未知的3D命令类型:", commandType);
         }
     }
 
     onDisconnect() {
         super.onDisconnect();
-        document.title = document.title + " (连接已断开)";
+        this.titleEl.innerText = this.titleEl.innerText + " (连接已断开)";
+    }
+    destroy() {
+        console.log(`🧹 开始销毁3D Plotter: ${this.windowId}`);
+
+        // 移除DOM事件监听器
+        if (this.resetBtn) {
+            this.resetBtn.removeEventListener('click', this.resetView);
+            this.resetBtn = null;
+        }
+
+        // 移除控制器事件
+        if (this.controls) {
+            this.controls.dispose();
+            this.controls = null;
+        }
+
+        // 清理辅助对象
+        if (this.gridHelper) {
+            this.scene.remove(this.gridHelper);
+            this.gridHelper.geometry.dispose();
+            this.gridHelper = null;
+        }
+        if (this.axesHelper) {
+            this.scene.remove(this.axesHelper);
+            this.axesHelper.geometry.dispose();
+            this.axesHelper = null;
+        }
+
+        // 清理灯光
+        const lights = [];
+        this.scene.traverse(child => {
+            if (child.isLight) {
+                lights.push(child);
+            }
+        });
+        lights.forEach(light => this.scene.remove(light));
+
+        // 清理UI元素引用
+        this.titleEl = null;
+        this.canvasContainer = null;
+
+        // 最后调用父类销毁方法
+        super.destroy();
+
+        console.log(`✅ 3D Plotter销毁完成: ${this.windowId}`);
     }
 }
 /**
@@ -421,7 +671,7 @@ class CoordinateSystem {
     }
     // 重置到默认视图的方法
     resetToDefault(camera, controls = null) {
-        console.log('🔄 重置到默认视图');
+        // console.log('🔄 重置到默认视图');
 
         // 使用对称的默认视图
         const defaultSize = 10;
@@ -451,11 +701,50 @@ class CoordinateSystem {
  * 它会根据摄像机的视野动态调整网格密度和刻度标签。
  */
 class DynamicGrid {
-    constructor(scene, camera, coordinateSystem, controls = null) {
+    constructor(scene, camera, coordinateSystem, controls = null, windowId) {
         this.scene = scene;
         this.camera = camera;
         this.coordinateSystem = coordinateSystem;
-        this.controls = controls; // 保存控制器引用
+        this.controls = controls;
+        this.windowId = windowId;
+
+        this.labelsVisible = true;
+        // 修复1：添加调试信息和错误处理
+        // console.log(`🔍 DynamicGrid初始化 - 窗口: ${windowId}`, {
+        //     coordinateSystem: !!coordinateSystem,
+        //     canvasContainer: !!coordinateSystem?.canvasContainer
+        // });
+
+        if (!coordinateSystem || !coordinateSystem.canvasContainer) {
+            console.error('❌ DynamicGrid: coordinateSystem或canvasContainer为null');
+            return;
+        }
+
+        // 修复2：正确的选择器路径
+        // canvasContainer的父元素是plot-area，在plot-area中查找轴容器
+        const plotArea = coordinateSystem.canvasContainer.parentElement;
+
+        if (!plotArea) {
+            console.error('❌ 找不到plot-area容器');
+            // 创建备用容器
+            this.createFallbackContainers();
+        } else {
+            // 使用正确的选择器
+            this.xAxisContainer = plotArea.querySelector(`#x-axis-${windowId}`);
+            this.yAxisContainer = plotArea.querySelector(`#y-axis-${windowId}`);
+
+            // console.log(`📊 找到轴容器:`, {
+            //     plotArea: !!plotArea,
+            //     xAxis: !!this.xAxisContainer,
+            //     yAxis: !!this.yAxisContainer
+            // });
+
+            // 如果找不到，创建备用容器
+            if (!this.xAxisContainer || !this.yAxisContainer) {
+                console.warn('⚠️ 找不到轴容器，创建备用容器');
+                this.createFallbackContainers(plotArea);
+            }
+        }
 
         // 网格材质
         const material = new THREE.LineBasicMaterial({
@@ -474,25 +763,80 @@ class DynamicGrid {
         this.xLabels = [];
         this.yLabels = [];
 
-        this.xAxisContainer = coordinateSystem.canvasContainer.parentElement.querySelector('#x-axis-container');
-        this.yAxisContainer = coordinateSystem.canvasContainer.parentElement.querySelector('#y-axis-container');
+        // console.log('✅ DynamicGrid初始化完成');
+    }
+    // 设置刻度标签可见性
+    setLabelsVisible(visible) {
+        this.labelsVisible = visible;
+        this.updateLabelsVisibility();
+    }
+    updateLabelsVisibility() {
+        if (this.xAxisContainer) {
+            this.xAxisContainer.style.display = this.labelsVisible ? 'block' : 'none';
+        }
+        if (this.yAxisContainer) {
+            this.yAxisContainer.style.display = this.labelsVisible ? 'block' : 'none';
+        }
+    }
+    // 修复3：添加备用容器创建方法
+    createFallbackContainers(plotArea = null) {
+        if (!plotArea) {
+            // 如果找不到plotArea，在body中创建临时容器
+            plotArea = document.createElement('div');
+            plotArea.className = 'plot-area';
+            plotArea.style.cssText = 'position: absolute; top: 0; left: 0; width: 100px; height: 100px; z-index: -1;';
+            document.body.appendChild(plotArea);
+        }
+
+        if (!this.xAxisContainer) {
+            this.xAxisContainer = document.createElement('div');
+            this.xAxisContainer.id = `x-axis-${this.windowId}`;
+            this.xAxisContainer.className = 'axis-container x-axis';
+            this.xAxisContainer.style.cssText = 'position: relative; height: 30px; border-top: 1px solid #aaa;';
+            plotArea.appendChild(this.xAxisContainer);
+            // console.log('➕ 创建备用X轴容器');
+        }
+
+        if (!this.yAxisContainer) {
+            this.yAxisContainer = document.createElement('div');
+            this.yAxisContainer.id = `y-axis-${this.windowId}`;
+            this.yAxisContainer.className = 'axis-container y-axis';
+            this.yAxisContainer.style.cssText = 'position: relative; width: 50px; border-right: 1px solid #aaa;';
+            plotArea.appendChild(this.yAxisContainer);
+            // console.log('➕ 创建备用Y轴容器');
+        }
     }
 
     update() {
         try {
+            // 修复4：添加前置检查
+            if (!this.xAxisContainer || !this.yAxisContainer) {
+                console.warn('⚠️ 网格更新: 轴容器不存在');
+                return;
+            }
+
+            if (!this.coordinateSystem || !this.camera) {
+                console.warn('⚠️ 网格更新: 缺少必要组件');
+                return;
+            }
+
             const worldBounds = this.coordinateSystem.getWorldBounds(this.camera, this.controls);
+
             // 添加边界验证
             if (!this.validateBounds(worldBounds)) {
                 console.warn('Invalid world bounds, skipping grid update');
                 return;
             }
+
             const viewWidth = worldBounds.right - worldBounds.left;
             const viewHeight = worldBounds.top - worldBounds.bottom;
+
             // 确保视图范围有效
             if (viewWidth <= 0 || viewHeight <= 0 || !isFinite(viewWidth) || !isFinite(viewHeight)) {
                 console.warn('Invalid view dimensions, skipping grid update');
                 return;
             }
+
             // 动态计算扩展范围，确保完全覆盖
             const dynamicPadding = this.calculateDynamicPadding(viewWidth, viewHeight);
 
@@ -556,11 +900,23 @@ class DynamicGrid {
             this.updateAxisLabels(this.xAxisContainer, this.xLabels, newXLabels, 'x');
             this.updateAxisLabels(this.yAxisContainer, this.yLabels, newYLabels, 'y');
 
-            // console.log(`动态网格更新: 网格线${vertices.length / 6}条, X标签${newXLabels.length}个, Y标签${newYLabels.length}个`);
+            // 更新标签可见性
+            this.updateLabelsVisibility();
+
+            // 如果标签不可见，清空标签
+            if (!this.labelsVisible) {
+                this.xLabels.forEach(label => label.remove());
+                this.xLabels.length = 0;
+                this.yLabels.forEach(label => label.remove());
+                this.yLabels.length = 0;
+                return; // 不生成新标签
+            }
+            // console.log(`✅ 动态网格更新: 网格线${vertices.length / 6}条, X标签${newXLabels.length}个, Y标签${newYLabels.length}个`);
         } catch (error) {
-            console.error('网格更新失败:', error);
+            console.error('❌ 网格更新失败:', error);
         }
     }
+
     // 边界验证方法
     validateBounds(bounds) {
         return bounds &&
@@ -571,6 +927,7 @@ class DynamicGrid {
             Math.abs(bounds.right - bounds.left) < 1e6 && // 避免过大范围
             Math.abs(bounds.top - bounds.bottom) < 1e6;
     }
+
     // 动态计算填充因子，根据缩放级别调整
     calculateDynamicPadding(viewWidth, viewHeight) {
         const maxDimension = Math.max(Math.abs(viewWidth), Math.abs(viewHeight));
@@ -581,6 +938,7 @@ class DynamicGrid {
         if (maxDimension < 10) return 0.5;     // 中等缩放
         return 0.2;                            // 小缩放
     }
+
     calculateNiceInterval(range) {
         if (range <= 0) return 1;
 
@@ -599,6 +957,16 @@ class DynamicGrid {
     }
 
     updateAxisLabels(container, oldLabels, newLabelsData, axis) {
+        // 如果标签不可见，直接返回
+        if (!this.labelsVisible) {
+            return;
+        }
+        // 修复5：添加容器检查
+        if (!container) {
+            console.warn(`⚠️ 更新${axis.toUpperCase()}轴标签: 容器不存在`);
+            return;
+        }
+
         oldLabels.forEach(label => label.remove());
         oldLabels.length = 0;
 
@@ -627,42 +995,85 @@ class DynamicGrid {
     }
 
     forceUpdate() {
+        this.updateLabelsVisibility();
         this.update();
     }
+
+    // 修复6：添加销毁方法
+    destroy() {
+        // console.log(`🧹 销毁动态网格: ${this.windowId}`);
+
+        if (this.gridLines) {
+            // 先从场景中移除
+            if (this.scene && this.gridLines.parent) {
+                this.scene.remove(this.gridLines);
+            }
+
+            // 然后清理几何体和材质
+            if (this.gridLines.geometry) {
+                this.gridLines.geometry.dispose();
+            }
+            if (this.gridLines.material) {
+                this.gridLines.material.dispose();
+            }
+            this.gridLines = null;
+        }
+
+        // 清理标签
+        if (this.xLabels) {
+            this.xLabels.forEach(label => label.remove());
+            this.xLabels = [];
+        }
+        if (this.yLabels) {
+            this.yLabels.forEach(label => label.remove());
+            this.yLabels = [];
+        }
+
+        // 清理容器引用
+        this.xAxisContainer = null;
+        this.yAxisContainer = null;
+        this.scene = null;
+        this.camera = null;
+        this.coordinateSystem = null;
+        this.controls = null;
+
+        // console.log(`✅ 动态网格销毁完成: ${this.windowId}`);
+    }
 }
+
 /**
  * Manages the MATLAB-style 2D plot.
  */
 class Plotter2D extends BasePlotter {
-    constructor(container) {
-        super(container);
+    constructor(container, windowId) {
+        super(container, windowId);
         this.type = '2D';
+        this.windowId = windowId;
         this.isDynamicFitEnabled = false;
-        this.lastSceneHash = ''; // 用于检测场景变化
-        this.dynamicFitPadding = 0.1; // 动态适应的填充值
+        this.lastSceneHash = '';
+        this.dynamicFitPadding = 0.1;
 
-        // 查找所有UI元素
-        this.titleEl = container.querySelector('#figure-title');
-        this.canvasContainer = container.querySelector('#canvas-container');
-        this.xAxisContainer = container.querySelector('#x-axis-container');
-        this.yAxisContainer = container.querySelector('#y-axis-container');
-        this.resetBtn = container.querySelector('#reset-view-btn');
-        this.dynamicFitToggle = container.querySelector('#dynamic-fit-toggle');
-        this.tooltipEl = container.querySelector('#coord-tooltip');
-        this.crosshairX = container.querySelector('#crosshair-x');
-        this.crosshairY = container.querySelector('#crosshair-y');
-        this.legendContainer = container.querySelector('#legend-container');
+        // 使用窗口ID查找UI元素
+        this.titleEl = container.querySelector(`#title-${windowId}`);
+        this.canvasContainer = container.querySelector(`#canvas-${windowId}`);
+        this.xAxisContainer = container.querySelector(`#x-axis-${windowId}`);
+        this.yAxisContainer = container.querySelector(`#y-axis-${windowId}`);
+        this.resetBtn = container.querySelector(`#reset-view-${windowId}`);
+        this.dynamicFitToggle = container.querySelector(`#dynamic-fit-${windowId}`);
+        this.tooltipEl = container.querySelector(`#tooltip-${windowId}`);
+        this.crosshairX = container.querySelector(`#crosshair-x-${windowId}`);
+        this.crosshairY = container.querySelector(`#crosshair-y-${windowId}`);
+        this.legendContainer = container.querySelector(`#legend-${windowId}`);
         this.legendElements = new Map();
 
-        // 统一的坐标系统
+        // 初始化坐标系统
         this.coordinateSystem = new CoordinateSystem(this.canvasContainer);
+
         // Three.js 场景设置
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0xffffff);
 
-        // 使用坐标系统初始化正交相机
         this.camera = new THREE.OrthographicCamera(-10, 10, 10, -10, -10, 10);
-        // 确保摄像机有有效的初始状态
         this.camera.zoom = 1;
         this.camera.updateProjectionMatrix();
 
@@ -670,66 +1081,39 @@ class Plotter2D extends BasePlotter {
         this.renderer.setSize(this.coordinateSystem.canvasWidth, this.coordinateSystem.canvasHeight);
         this.canvasContainer.appendChild(this.renderer.domElement);
 
-
         // OrbitControls配置
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-        // 2D特定配置
-        this.controls.enableRotate = false;          // 禁用旋转
-        this.controls.screenSpacePanning = true;     // 屏幕空间平移
-        this.controls.enableDamping = false;         // 禁用阻尼（2D不需要）
+        this.controls.enableRotate = false;
+        this.controls.screenSpacePanning = true;
+        this.controls.enableDamping = false;
         this.controls.mouseButtons = {
             LEFT: THREE.MOUSE.PAN,
             MIDDLE: THREE.MOUSE.DOLLY,
             RIGHT: THREE.MOUSE.PAN
         };
-        // 缩放限制
         this.controls.minZoom = 0.05;
         this.controls.maxZoom = 50;
         this.controls.zoomSpeed = 1.0;
-
-        // 设置合适的初始目标点
         this.controls.target.set(0, 0, 0);
         this.controls.update();
 
         this.dynamicGrid = new DynamicGrid(this.scene, this.camera, this.coordinateSystem, this.controls);
 
-        // 添加缩放事件监听
+        // 事件监听
         this.controls.addEventListener('change', this.onControlsChange);
-        // 保存最后鼠标位置，用于缩放时更新
         this.lastMousePosition = { x: 0, y: 0 };
 
-        // 绑定所有新旧UI元素的事件监听器
         this.resetBtn.addEventListener('click', this.resetView);
         this.dynamicFitToggle.addEventListener('change', this.onDynamicFitChange);
         this.canvasContainer.addEventListener('mousemove', this.onMouseMove);
         this.canvasContainer.addEventListener('mouseleave', this.onMouseLeave);
 
-        // 控制器状态监控
         this.lastControlState = {
             target: new THREE.Vector3(),
             zoom: this.camera.zoom
         };
 
-
-        // 监控状态变化
-        setInterval(() => {
-            const currentTarget = this.controls.target.clone();
-            const currentZoom = this.camera.zoom;
-
-            if (!currentTarget.equals(this.lastControlState.target) ||
-                Math.abs(currentZoom - this.lastControlState.zoom) > 0.01) {
-
-                // console.log('控制器状态 - 目标:',
-                //     currentTarget.x.toFixed(2), currentTarget.y.toFixed(2),
-                //     'Zoom:', currentZoom.toFixed(2));
-
-                this.lastControlState.target.copy(currentTarget);
-                this.lastControlState.zoom = currentZoom;
-            }
-        }, 1000); // 每秒检查一次
-
         this.animate();
-
     }
     // 统一的控制器变化处理
     onControlsChange = () => {
@@ -902,7 +1286,7 @@ class Plotter2D extends BasePlotter {
         this.controls.enabled = !this.isDynamicFitEnabled;
 
         if (this.isDynamicFitEnabled) {
-            console.log('✅ 开启动态适应模式');
+            // console.log('✅ 开启动态适应模式');
             // 立即执行一次适应并重置状态
             this.lastSceneHash = '';
             this.lastDataBounds = null;
@@ -910,7 +1294,7 @@ class Plotter2D extends BasePlotter {
                 this.executeDynamicFit();
             }, 50);
         } else {
-            console.log('❌ 关闭动态适应模式');
+            // console.log('❌ 关闭动态适应模式');
         }
     };
 
@@ -989,7 +1373,7 @@ class Plotter2D extends BasePlotter {
     * 重置视角方法
     */
     resetView = () => {
-        console.log('🔁 用户点击重置视角');
+        // console.log('🔁 用户点击重置视角');
 
         // 禁用动态适应
         this.isDynamicFitEnabled = false;
@@ -1010,7 +1394,7 @@ class Plotter2D extends BasePlotter {
     * 重置到默认视图
     */
     resetToDefaultView = () => {
-        console.log('🏠 重置到默认视图');
+        // console.log('🏠 重置到默认视图');
         this.coordinateSystem.resetToDefault(this.camera, this.controls);
         this.forceImmediateRender();
     };
@@ -1097,8 +1481,13 @@ class Plotter2D extends BasePlotter {
                 this.updateLegend(id_to_delete, null);
                 break;
             case proto.visualization.Command2D.CommandTypeCase.SET_GRID_VISIBLE:
-                // this.gridHelper.visible = command.getSetGridVisible().getVisible();
                 this.dynamicGrid.gridLines.visible = command.getSetGridVisible().getVisible();
+                break;
+            case proto.visualization.Command2D.CommandTypeCase.SET_AXES_VISIBLE:
+                const axesVisible = command.getSetAxesVisible().getVisible();
+                if (this.dynamicGrid) {
+                    this.dynamicGrid.setLabelsVisible(axesVisible);
+                }
                 break;
             case proto.visualization.Command2D.CommandTypeCase.SET_AXIS_PROPERTIES: {
                 const props = command.getSetAxisProperties();
@@ -1123,8 +1512,20 @@ class Plotter2D extends BasePlotter {
                 break;
             }
             case proto.visualization.Command2D.CommandTypeCase.SET_TITLE:
-                this.titleEl.innerText = command.getSetTitle().getTitle();
+                if (this.titleEl) {
+                    this.titleEl.innerText = command.getSetTitle().getTitle();
+                }
                 break;
+            case proto.visualization.Command2D.CommandTypeCase.CREATE_WINDOW:
+                // 窗口创建命令已经在AppManager中处理，这里可以记录日志
+                // console.log("✅ 2D窗口创建命令已处理:", this.windowId);
+                break;
+            case proto.visualization.Command2D.CommandTypeCase.DELETE_WINDOW:
+                // 删除窗口命令在AppManager级别处理，这里可以记录日志
+                // console.log("🔄 2D窗口收到删除命令，准备销毁:", this.windowId);
+                break;
+            default:
+                console.warn("⚠️ 未知的2D命令类型:", commandType);
         }
     }
 
@@ -1137,6 +1538,8 @@ class Plotter2D extends BasePlotter {
         this.controls.enabled = true;
     }
     updateLegend(id, material) {
+        console.log(`🧹 开始销毁图元图例id: ${id} `);
+
         if (!material) { // Corresponds to object deletion
             if (this.legendElements.has(id)) {
                 this.legendElements.get(id).remove();
@@ -1165,14 +1568,57 @@ class Plotter2D extends BasePlotter {
         `;
     }
     destroy() {
-        // Call the parent class's destroy method to clean up common resources.
+        console.log(`🧹 开始销毁2D Plotter: ${this.windowId}`);
+
+        // 先停止所有可能的事件和动画
+        if (this.resizeTimeout) {
+            clearTimeout(this.resizeTimeout);
+            this.resizeTimeout = null;
+        }
+
+        // 移除DOM事件监听器
+        if (this.resetBtn) {
+            this.resetBtn.removeEventListener('click', this.resetView);
+            this.resetBtn = null;
+        }
+        if (this.dynamicFitToggle) {
+            this.dynamicFitToggle.removeEventListener('change', this.onDynamicFitChange);
+            this.dynamicFitToggle = null;
+        }
+        if (this.canvasContainer) {
+            this.canvasContainer.removeEventListener('mousemove', this.onMouseMove);
+            this.canvasContainer.removeEventListener('mouseleave', this.onMouseLeave);
+            this.canvasContainer = null;
+        }
+
+        // 移除控制器事件
         if (this.controls) {
             this.controls.removeEventListener('change', this.onControlsChange);
         }
+
+        // 销毁动态网格
+        if (this.dynamicGrid) {
+            this.dynamicGrid.destroy();
+            this.dynamicGrid = null;
+        }
+
+        // 清理坐标系统
+        this.coordinateSystem = null;
+
+        // 清理UI元素引用
+        this.titleEl = null;
+        this.xAxisContainer = null;
+        this.yAxisContainer = null;
+        this.tooltipEl = null;
+        this.crosshairX = null;
+        this.crosshairY = null;
+        this.legendContainer = null;
+        this.legendElements.clear();
+
+        // 最后调用父类销毁方法
         super.destroy();
 
-        // Specifically destroy the resources created by our dynamic grid.
-        this.dynamicGrid.destroy();
+        console.log(`✅ 2D Plotter销毁完成: ${this.windowId}`);
     }
 }
 // 一个辅助对象，用于创建和缓存点的纹理
@@ -1504,17 +1950,26 @@ class ConnectionManager {
     }
 
     handleMessage = (event) => {
+        // console.log("📥 收到WebSocket消息，数据大小:", event.data.byteLength, "字节");
+
         const data = new Uint8Array(event.data);
         const visMessage = proto.visualization.VisMessage.deserializeBinary(data);
 
         const messageType = visMessage.getMessageDataCase();
+        console.log("📋 消息类型:", messageType);
 
         if (messageType === proto.visualization.VisMessage.MessageDataCase.SCENE_3D_UPDATE) {
-            this.appManager.handleUpdate(visMessage.getScene3dUpdate(), '3D');
+            const sceneUpdate = visMessage.getScene3dUpdate();
+            // console.log("🎮 3D更新 - 窗口ID:", sceneUpdate.getWindowId(),
+            //     "命令数量:", sceneUpdate.getCommandsList().length);
+            this.appManager.handleUpdate(sceneUpdate, '3D');
         } else if (messageType === proto.visualization.VisMessage.MessageDataCase.SCENE_2D_UPDATE) {
-            this.appManager.handleUpdate(visMessage.getScene2dUpdate(), '2D');
+            const sceneUpdate = visMessage.getScene2dUpdate();
+            // console.log("📊 2D更新 - 窗口ID:", sceneUpdate.getWindowId(),
+            //     "命令数量:", sceneUpdate.getCommandsList().length);
+            this.appManager.handleUpdate(sceneUpdate, '2D');
         } else {
-            console.warn("Received message of unknown type.");
+            console.warn("❓ 收到未知类型的消息:", messageType);
         }
     }
 }

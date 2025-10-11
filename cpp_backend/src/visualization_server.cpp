@@ -1,7 +1,4 @@
 // vis_stream/cpp_backend/src/visualization_server.cpp
-#include "vis_stream.h"  // 必须首先包含自己的头文件
-
-// 在这里包含所有必要的头文件
 #include <atomic>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/uuid/uuid.hpp>
@@ -18,6 +15,7 @@
 
 #include "typed_window.h"
 #include "vis_primitives.h"
+#include "vis_stream.h"
 #include "visualization.pb.h"
 #include "window_2d.h"
 #include "window_3d.h"
@@ -143,16 +141,15 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
   using steady_timer = boost::asio::steady_timer;
 
   struct TrackedObject {
-    std::string id;
+    std::string id;  // 图元的UUID
     std::weak_ptr<Vis::Observable> obj_ptr;
     bool is_3d;
-    std::string window_name;
-    size_t window_idx;
+    std::string window_uuid;  // 所在窗口的UUID
     visualization::Material material;
   };
 
   struct WindowInfo {
-    std::string name;
+    std::string uuid;
     bool is_3d;
     std::string display_name;
   };
@@ -162,6 +159,9 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
         m_auto_update_enabled(false),
         m_update_threshold(0),
         m_update_interval(0) {
+    m_server.clear_access_channels(websocketpp::log::alevel::all);
+    m_server.clear_error_channels(websocketpp::log::elevel::all);
+
     m_server.init_asio();
     m_server.set_reuse_addr(true);
     m_server.set_open_handler(
@@ -187,10 +187,10 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     m_server.get_io_service().post([this]() { m_timer->cancel(); });
     if (!m_server.stopped()) {
       m_server.stop_listening();
-      for (const auto& pair : m_connections) {
+      if (m_has_connection) {
         websocketpp::lib::error_code ec;
-        m_server.close(pair.second, websocketpp::close::status::going_away, "",
-                       ec);
+        m_server.close(m_current_connection,
+                       websocketpp::close::status::going_away, "", ec);
       }
       m_server.stop();
     }
@@ -198,106 +198,152 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       m_thread.join();
     }
   }
-
+  bool is_connected() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_has_connection;
+  }
   template <typename T>
   void send_update(const T& update) {
-    if (m_connections.empty() || update.window_id().empty()) return;
-    if (m_connections.count(update.window_id()) == 0) return;
-    auto hdl = m_connections.at(update.window_id());
-    visualization::VisMessage vis_msg;
-    if constexpr (std::is_same_v<T, visualization::Scene3DUpdate>) {
-      vis_msg.mutable_scene_3d_update()->CopyFrom(update);
-    } else if constexpr (std::is_same_v<T, visualization::Scene2DUpdate>) {
-      vis_msg.mutable_scene_2d_update()->CopyFrom(update);
-    } else {
+    if (!m_has_connection) {
+      std::cout << "❌ 没有活跃连接，无法发送更新" << std::endl;
       return;
     }
+
+    // std::cout << "🔄 准备发送更新，窗口ID: " << update.window_id() << ",
+    // 类型: "
+    //           << (std::is_same_v<T, visualization::Scene3DUpdate> ? "3D" :
+    //           "2D")
+    //           << std::endl;
+
+    visualization::VisMessage vis_msg;
+
+    if constexpr (std::is_same_v<T, visualization::Scene3DUpdate>) {
+      vis_msg.mutable_scene_3d_update()->CopyFrom(update);
+      // std::cout << "📦 3D更新命令数量: " << update.commands_size() <<
+      // std::endl;
+    } else if constexpr (std::is_same_v<T, visualization::Scene2DUpdate>) {
+      vis_msg.mutable_scene_2d_update()->CopyFrom(update);
+      // std::cout << "📦 2D更新命令数量: " << update.commands_size() <<
+      // std::endl;
+    } else {
+      std::cout << "❌ 未知的更新类型" << std::endl;
+      return;
+    }
+
     std::string serialized_msg;
     vis_msg.SerializeToString(&serialized_msg);
-    m_server.send(hdl, serialized_msg, websocketpp::frame::opcode::binary);
+
+    // std::cout << "📤 发送消息大小: " << serialized_msg.size() << " 字节"
+    //           << std::endl;
+
+    try {
+      m_server.send(m_current_connection, serialized_msg,
+                    websocketpp::frame::opcode::binary);
+      // std::cout << "✅ 消息发送成功" << std::endl;
+    } catch (const std::exception& e) {
+      std::cerr << "❌ 发送失败: " << e.what() << std::endl;
+    }
   }
 
-  void add(std::shared_ptr<Vis::Observable> obj, const std::string& window_name,
+  void add(std::shared_ptr<Vis::Observable> obj, const std::string& name,
            const visualization::Material& material, bool is_3d) {
+    if (!obj) return;
+
+    // 1. 根据名称查找窗口的UUID
+    std::string window_uuid = get_uuid_for_name(name, is_3d);
+    if (window_uuid.empty()) {
+      std::cerr << "❌ 错误：在名为 '" << name
+                << "' 的窗口中添加图元失败，找不到该窗口。" << std::endl;
+      return;
+    }
+
+    // 2. 调用原有的、基于UUID的add方法
+    add_internal(obj, window_uuid, material, is_3d);
+  }
+
+  // (const Vis::Observable& 版本)
+  void add(const Vis::Observable& obj, const std::string& name,
+           const visualization::Material& material, bool is_3d) {
+    std::string window_uuid = get_uuid_for_name(name, is_3d);
+    if (window_uuid.empty()) {
+      std::cerr << "❌ 错误：在名为 '" << name
+                << "' 的窗口中添加图元失败，找不到该窗口。" << std::endl;
+      return;
+    }
+
+    // 克隆对象并调用基于UUID的add方法
+    auto obj_copy = clone_to_shared(obj);
+    if (obj_copy) {
+      add_internal(obj_copy, window_uuid, material, is_3d);
+    }
+  }
+  void add_internal(std::shared_ptr<Vis::Observable> obj,
+                    const std::string& window_uuid,
+                    const visualization::Material& material, bool is_3d) {
     if (!obj) return;
     std::lock_guard<std::mutex> lock(m_mutex);
     cleanup_expired_objects();
 
+    // 获取窗口名称
+    std::string window_name = "";
+    auto window_it = m_windows.find(window_uuid);
+    if (window_it != m_windows.end()) {
+      window_name = window_it->second.display_name;
+    }
     std::string object_id = "obj_" + std::to_string(m_next_object_id++);
 
     TrackedObject tracked;
     tracked.id = object_id;
     tracked.obj_ptr = obj;
     tracked.is_3d = is_3d;
-    tracked.window_name = window_name;
-    tracked.window_idx = 0;
+    tracked.window_uuid = window_uuid;  //
     tracked.material = material;
 
     m_tracked_objects[object_id] = tracked;
     m_object_ptr_to_id[obj.get()] = object_id;
-    m_window_objects[window_name].insert(object_id);
+    m_window_objects[window_uuid].insert(object_id);  //
 
-    obj->set_observer(this);
-
-    std::string window_id = get_window_id_for_name(window_name, is_3d);
-    if (window_id.empty()) return;
+    obj->set_observer(this);  //
 
     if (is_3d) {
       visualization::Scene3DUpdate scene_update;
-      scene_update.set_window_id(window_id);
-      auto* cmd = scene_update.add_commands()->mutable_add_object();
+      scene_update.set_window_id(window_uuid);
+      scene_update.set_window_name(window_name);
+      auto* cmd = scene_update.add_commands()->mutable_add_object();  //
       cmd->set_id(object_id);
       cmd->mutable_material()->CopyFrom(material);
-      populate_3d_geometry(obj, cmd);
+      populate_3d_geometry(obj, cmd);  //
       send_update(scene_update);
     } else {
       visualization::Scene2DUpdate scene_update;
-      scene_update.set_window_id(window_id);
-      auto* cmd = scene_update.add_commands()->mutable_add_object();
+      scene_update.set_window_id(window_uuid);
+      scene_update.set_window_name(window_name);
+      auto* cmd = scene_update.add_commands()->mutable_add_object();  //
       cmd->set_id(object_id);
       cmd->mutable_material()->CopyFrom(material);
-      populate_2d_geometry(obj, cmd);
+      populate_2d_geometry(obj, cmd);  //
       send_update(scene_update);
     }
   }
 
-  void add(const Vis::Observable& obj, const std::string& window_name,
-           const visualization::Material& material, bool is_3d) {
-    auto obj_copy = clone_to_shared(obj);
-    if (obj_copy) {
-      add(obj_copy, window_name, material, is_3d);
-    }
-  }
-
-  void clear_dynamic(const std::string& window_name) {
+  void clear_static(const std::string& window_name, bool is_3d) {
     std::lock_guard<std::mutex> lock(m_mutex);
     cleanup_expired_objects();
 
-    auto it = m_window_objects.find(window_name);
-    if (it == m_window_objects.end()) return;
-
-    std::vector<std::string> to_remove;
-    for (const auto& object_id : it->second) {
-      auto tracked_it = m_tracked_objects.find(object_id);
-      if (tracked_it != m_tracked_objects.end()) {
-        auto obj = tracked_it->second.obj_ptr.lock();
-        if (obj) {
-          to_remove.push_back(object_id);
-        }
-      }
+    // 将窗口名称转换为UUID
+    std::string window_uuid = get_uuid_for_name(window_name, is_3d);
+    if (window_uuid.empty()) {
+      std::cout << "❌ 清除静态对象失败：找不到窗口 '" << window_name << "'"
+                << std::endl;
+      return;
     }
 
-    for (const auto& id : to_remove) {
-      remove_object_internal(id);
+    auto it = m_window_objects.find(window_uuid);  // 使用UUID查找
+    if (it == m_window_objects.end()) {
+      std::cout << "❌ 清除静态对象失败：窗口 '" << window_name
+                << "' 中没有对象" << std::endl;
+      return;
     }
-  }
-
-  void clear_static(const std::string& window_name) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    cleanup_expired_objects();
-
-    auto it = m_window_objects.find(window_name);
-    if (it == m_window_objects.end()) return;
 
     std::vector<std::string> to_remove;
     for (const auto& object_id : it->second) {
@@ -309,22 +355,78 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       }
     }
 
+    // std::cout << "🗑️ 清除静态对象：找到 " << to_remove.size() << "
+    // 个过期对象"
+    //           << std::endl;
     for (const auto& id : to_remove) {
       remove_object_internal(id);
     }
   }
 
-  void clear(const std::string& window_name) {
+  void clear_dynamic(const std::string& window_name, bool is_3d) {
+    (void)is_3d;
     std::lock_guard<std::mutex> lock(m_mutex);
     cleanup_expired_objects();
 
-    auto it = m_window_objects.find(window_name);
-    if (it == m_window_objects.end()) return;
+    // std::cout << "🔍 开始清除动态对象 - 窗口名称: " << window_name <<
+    // std::endl;
 
-    std::vector<std::string> to_remove(it->second.begin(), it->second.end());
+    // 将窗口名称转换为UUID
+    std::string window_uuid = get_uuid_for_name(window_name, is_3d);
+    if (window_uuid.empty()) {
+      std::cout << "❌ 找不到窗口名称对应的UUID: " << window_name << std::endl;
+      return;
+    }
+
+    auto it = m_window_objects.find(window_uuid);
+    if (it == m_window_objects.end()) {
+      std::cout << "❌ 找不到窗口UUID对应的对象集合: " << window_uuid
+                << std::endl;
+      return;
+    }
+
+    // std::cout << "📊 窗口 " << window_name
+    //           << " 中的对象数量: " << it->second.size() << std::endl;
+
+    std::vector<std::string> to_remove;
+    for (const auto& object_id : it->second) {
+      auto tracked_it = m_tracked_objects.find(object_id);
+      if (tracked_it == m_tracked_objects.end()) {
+        continue;
+      }
+
+      const auto& tracked = tracked_it->second;
+      auto obj = tracked.obj_ptr.lock();
+      if (obj) {
+        // std::cout << "🗑️ 标记要删除的动态对象: " << object_id << std::endl;
+        to_remove.push_back(object_id);
+      } else {
+        std::cout << "⚠️ 对象已过期: " << object_id << std::endl;
+      }
+    }
+
+    // std::cout << "🔨 准备删除 " << to_remove.size() << " 个对象" <<
+    // std::endl;
+
     for (const auto& id : to_remove) {
       remove_object_internal(id);
     }
+
+    // std::cout << "✅ 动态对象清除完成" << std::endl;
+  }
+
+  void clear(const std::string& window_name, bool is_3d) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    // 将窗口名称转换为UUID
+    std::string window_uuid = get_uuid_for_name(window_name, is_3d);
+    if (window_uuid.empty()) {
+      std::cout << "❌ 清除所有对象失败：找不到窗口 '" << window_name << "'"
+                << std::endl;
+      return;
+    }
+
+    clear_unlocked(window_uuid);  // 传入UUID而不是名称
   }
 
   void on_update(Vis::Observable* subject) override {
@@ -341,18 +443,18 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     const auto& tracked = tracked_it->second;
 
     if (tracked.is_3d) {
-      m_dirty_objects_3d[tracked.window_name].insert(object_id);
+      m_dirty_objects_3d[tracked.window_uuid].insert(object_id);
       if (m_auto_update_enabled &&
-          m_dirty_objects_3d[tracked.window_name].size() >=
+          m_dirty_objects_3d[tracked.window_uuid].size() >=
               static_cast<size_t>(m_update_threshold)) {
-        flush_dirty_set_3d_unlocked(tracked.window_name);
+        flush_dirty_set_3d_unlocked(tracked.window_uuid);
       }
     } else {
-      m_dirty_objects_2d[tracked.window_name].insert(object_id);
+      m_dirty_objects_2d[tracked.window_uuid].insert(object_id);
       if (m_auto_update_enabled &&
-          m_dirty_objects_2d[tracked.window_name].size() >=
+          m_dirty_objects_2d[tracked.window_uuid].size() >=
               static_cast<size_t>(m_update_threshold)) {
-        flush_dirty_set_2d_unlocked(tracked.window_name);
+        flush_dirty_set_2d_unlocked(tracked.window_uuid);
       }
     }
   }
@@ -360,11 +462,16 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
   void drawnow(const std::string& name, const bool& is_3d) {
     std::lock_guard<std::mutex> lock(m_mutex);
     cleanup_expired_objects();
-
+    // 将窗口名称转换为UUID
+    std::string window_uuid = get_uuid_for_name(name, is_3d);
+    if (window_uuid.empty()) {
+      std::cerr << "❌ 错误：找不到名为 '" << name << "' 的窗口" << std::endl;
+      return;
+    }
     if (is_3d) {
-      flush_dirty_set_3d_unlocked(name);
+      flush_dirty_set_3d_unlocked(window_uuid);
     } else {
-      flush_dirty_set_2d_unlocked(name);
+      flush_dirty_set_2d_unlocked(window_uuid);
     }
   }
 
@@ -386,38 +493,148 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
   std::vector<std::string> get_connected_windows() {
     std::lock_guard<std::mutex> lock(m_mutex);
     std::vector<std::string> ids;
-    ids.reserve(m_connections.size());
-    for (const auto& pair : m_connections) ids.push_back(pair.first);
+    if (m_has_connection) {
+      // 返回所有窗口名称
+      for (const auto& [name, _] : m_windows) {
+        ids.push_back(name);
+      }
+    }
     return ids;
   }
 
-  void create_window(const std::string& name, bool is_3d) {
+  bool create_window(const std::string& name, bool is_3d) {
     std::lock_guard<std::mutex> lock(m_mutex);
+    if (name.empty()) {
+      std::cerr << "❌ 错误：窗口名称不能为空。" << std::endl;
+      return false;
+    }
+    // 检查名称是否重复（统一检查）
+    if (m_window_name_to_uuid.count(name)) {
+      std::cerr << "❌ 错误：已存在名为 '" << name << "' 的窗口。" << std::endl;
+      return false;
+    }
+    // 创建UUID和窗口信息
+    boost::uuids::uuid uuid = boost::uuids::random_generator()();
+    std::string window_uuid = to_string(uuid);
 
-    std::string window_name =
-        name.empty() ? "window_" + std::to_string(m_next_window_index++) : name;
+    // 存储双向映射关系
+    m_window_name_to_uuid[name] = window_uuid;
+    m_windows[window_uuid] = WindowInfo{window_uuid, is_3d, name};
 
-    m_windows[window_name] = WindowInfo{window_name, is_3d, window_name};
+    if (m_has_connection) {
+      send_window_create_command(window_uuid, name, is_3d);
+    }
 
-    std::cout << "Created " << (is_3d ? "3D" : "2D")
-              << " window: " << window_name << std::endl;
+    std::cout << "✅ 成功创建窗口: UUID=" << window_uuid << ", 名称=" << name
+              << ", 类型=" << (is_3d ? "3D" : "2D") << std::endl;
+    return true;
   }
-
-  bool remove_window(const std::string& name, bool is_3d) {
+  bool rename_window(const std::string& old_name, const std::string& new_name,
+                     bool is_3d) {
     std::lock_guard<std::mutex> lock(m_mutex);
 
-    auto it = m_windows.find(name);
-    if (it == m_windows.end() || it->second.is_3d != is_3d) {
+    if (new_name.empty()) {
+      std::cerr << "❌ 错误：新窗口名称不能为空。" << std::endl;
       return false;
     }
 
-    clear(name);
-    m_windows.erase(it);
+    // 检查新名称是否已存在（并且不是自己）
+    if (old_name != new_name && m_window_name_to_uuid.count(new_name)) {
+      std::cerr << "❌ 错误：已存在名为 '" << new_name << "' 的窗口。"
+                << std::endl;
+      return false;
+    }
 
-    std::cout << "Removed window: " << name << std::endl;
+    // 查找旧名称对应的UUID
+    auto it = m_window_name_to_uuid.find(old_name);
+    if (it == m_window_name_to_uuid.end()) {
+      std::cerr << "❌ 错误：找不到名为 '" << old_name << "' 的窗口。"
+                << std::endl;
+      return false;
+    }
+
+    std::string uuid = it->second;
+
+    // 更新名称映射
+    m_window_name_to_uuid.erase(it);
+    m_window_name_to_uuid[new_name] = uuid;
+
+    // 更新 m_windows 中的显示名称
+    m_windows[uuid].display_name = new_name;
+
+    // 向前端发送SetTitle命令
+    if (is_3d) {
+      visualization::Scene3DUpdate u;
+      u.set_window_id(uuid);
+      u.add_commands()->mutable_set_title()->set_title(new_name);
+      send_update(u);
+    } else {
+      visualization::Scene2DUpdate u;
+      u.set_window_id(uuid);
+      u.add_commands()->mutable_set_title()->set_title(new_name);
+      send_update(u);
+    }
+
     return true;
   }
+  bool remove_window(const std::string& name, bool is_3d) {
+    std::lock_guard<std::mutex> lock(m_mutex);
 
+    // 使用统一映射查找UUID
+    auto it = m_window_name_to_uuid.find(name);
+    if (it == m_window_name_to_uuid.end()) {
+      std::cout << "⚠️ 尝试删除不存在的窗口: " << name << std::endl;
+      return false;
+    }
+
+    std::string uuid = it->second;
+
+    // 验证窗口类型是否匹配
+    auto window_it = m_windows.find(uuid);
+    if (window_it == m_windows.end() || window_it->second.is_3d != is_3d) {
+      std::cerr << "❌ 错误：窗口类型不匹配。" << std::endl;
+      return false;
+    }
+
+    send_window_delete_command(uuid, is_3d);
+    clear_unlocked(uuid);
+    m_windows.erase(uuid);
+    m_window_name_to_uuid.erase(it);
+
+    std::cout << "🗑️ 删除窗口: 名称=" << name << ", UUID=" << uuid << std::endl;
+    return true;
+  }
+  /**
+   * 发送窗口删除命令到前端
+   */
+  void send_window_delete_command(const std::string& window_uuid, bool is_3d) {
+    if (!m_has_connection) return;
+
+    std::string window_name = "";
+    auto window_it = m_windows.find(window_uuid);
+    if (window_it != m_windows.end()) {
+      window_name = window_it->second.display_name;
+    }
+
+    if (is_3d) {
+      visualization::Scene3DUpdate scene_update;
+      scene_update.set_window_id(window_uuid);
+      scene_update.set_window_name(window_name);
+      auto* cmd = scene_update.add_commands()->mutable_delete_window();
+      cmd->set_window_id(window_uuid);
+      send_update(scene_update);
+    } else {
+      visualization::Scene2DUpdate scene_update;
+      scene_update.set_window_id(window_uuid);
+      scene_update.set_window_name(window_name);
+      auto* cmd = scene_update.add_commands()->mutable_delete_window();
+      cmd->set_window_id(window_uuid);
+      send_update(scene_update);
+    }
+
+    std::cout << "📤 发送窗口删除命令: UUID=" << window_uuid
+              << ", 名称=" << window_name << std::endl;
+  }
   template <typename CommandType, typename SceneUpdateType>
   void send_window_command(const std::string& window_name, bool is_3d,
                            std::function<void(CommandType*)> cmd_filler) {
@@ -430,28 +647,39 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     send_update(u);
   }
 
-  std::vector<std::string> get_windows_name(const bool& is_3d) {
+  std::vector<std::string> get_window_names(const bool& is_3d) {
     std::lock_guard<std::mutex> lock(m_mutex);
     std::vector<std::string> names;
-    for (const auto& [name, info] : m_windows) {
-      if (info.is_3d == is_3d) {
+    for (const auto& [name, uuid] : m_window_name_to_uuid) {
+      auto window_it = m_windows.find(uuid);
+      if (window_it != m_windows.end() && window_it->second.is_3d == is_3d) {
         names.push_back(name);
       }
     }
     return names;
   }
 
-  size_t getTotalWindows() const { return m_windows.size(); }
+  size_t get_windows_number() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_windows.size();
+  }
 
-  size_t getTotalObservables() const { return m_tracked_objects.size(); }
+  size_t get_observables_number() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_tracked_objects.size();
+  }
 
  private:
   server m_server;
   std::unique_ptr<steady_timer> m_timer;
   uint16_t m_port;
   std::thread m_thread;
-  std::mutex m_mutex;
+  mutable std::mutex m_mutex;
   std::atomic<uint64_t> m_next_object_id{1};
+
+  // 单连接模式
+  connection_hdl m_current_connection;
+  bool m_has_connection = false;
 
   std::unordered_map<std::string, TrackedObject> m_tracked_objects;
   std::unordered_map<Vis::Observable*, std::string> m_object_ptr_to_id;
@@ -461,16 +689,52 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       m_dirty_objects_2d;
   std::unordered_map<std::string, std::unordered_set<std::string>>
       m_dirty_objects_3d;
-
+  // 窗口名称到UUID的映射（2D和3D统一管理）
+  std::unordered_map<std::string, std::string> m_window_name_to_uuid;
   std::unordered_map<std::string, WindowInfo> m_windows;
   std::atomic<size_t> m_next_window_index{0};
 
   bool m_auto_update_enabled;
   int m_update_threshold;
   int m_update_interval;
-  std::map<std::string, connection_hdl> m_connections;
 
   // 私有方法实现...
+  std::string get_uuid_for_name(const std::string& name, bool is_3d) const {
+    auto it = m_window_name_to_uuid.find(name);
+    if (it != m_window_name_to_uuid.end()) {
+      // 验证窗口类型
+      auto window_it = m_windows.find(it->second);
+      if (window_it != m_windows.end() && window_it->second.is_3d == is_3d) {
+        return it->second;
+      }
+    }
+    return "";  // 返回空字符串表示未找到
+  }
+  // 内部不加锁的清除方法
+  void clear_unlocked(const std::string& window_uuid) {
+    cleanup_expired_objects();
+
+    auto it = m_window_objects.find(window_uuid);
+    if (it == m_window_objects.end()) {
+      // std::cout << "窗口UUID '" << window_uuid
+      //           << "' 中没有对象" << std::endl;
+      return;
+    }
+
+    std::vector<std::string> to_remove(it->second.begin(), it->second.end());
+    // std::cout << "🗑️ 清除所有对象：找到 " << to_remove.size() << " 个对象"
+    //           << std::endl;
+
+    for (const auto& id : to_remove) {
+      remove_object_internal(id);
+    }
+
+    // 清理窗口对象集合
+    m_window_objects.erase(window_uuid);
+    // std::cout << "✅ 窗口 '" << window_uuid << "' 的所有对象已清除"
+    //           << std::endl;
+  }
+
   void cleanup_expired_objects() {
     std::vector<std::string> expired_ids;
 
@@ -496,42 +760,55 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       m_object_ptr_to_id.erase(obj.get());
     }
 
-    m_window_objects[tracked.window_name].erase(object_id);
+    m_window_objects[tracked.window_uuid].erase(object_id);
 
     if (tracked.is_3d) {
-      m_dirty_objects_3d[tracked.window_name].erase(object_id);
+      m_dirty_objects_3d[tracked.window_uuid].erase(object_id);
     } else {
-      m_dirty_objects_2d[tracked.window_name].erase(object_id);
+      m_dirty_objects_2d[tracked.window_uuid].erase(object_id);
     }
 
-    std::string window_id =
-        get_window_id_for_name(tracked.window_name, tracked.is_3d);
-    if (!window_id.empty()) {
-      if (tracked.is_3d) {
-        visualization::Scene3DUpdate u;
-        u.set_window_id(window_id);
-        u.add_commands()->mutable_delete_object()->set_id(object_id);
-        send_update(u);
-      } else {
-        visualization::Scene2DUpdate u;
-        u.set_window_id(window_id);
-        u.add_commands()->mutable_delete_object()->set_id(object_id);
-        send_update(u);
-      }
+    // 这里直接使用 tracked.window_uuid，不需要再次查找
+    std::string window_name = "";
+    auto window_it = m_windows.find(tracked.window_uuid);
+    if (window_it != m_windows.end()) {
+      window_name = window_it->second.display_name;
+    }
+
+    if (tracked.is_3d) {
+      visualization::Scene3DUpdate u;
+      u.set_window_id(tracked.window_uuid);  // 直接使用窗口UUID
+      u.set_window_name(window_name);
+      u.add_commands()->mutable_delete_object()->set_id(object_id);
+      send_update(u);
+      // std::cout << "📤 发送3D删除命令 - 窗口: " << window_name
+      //           << ", 对象: " << object_id << std::endl;
+    } else {
+      visualization::Scene2DUpdate u;
+      u.set_window_id(tracked.window_uuid);  // 直接使用窗口UUID
+      u.set_window_name(window_name);
+      u.add_commands()->mutable_delete_object()->set_id(object_id);
+      send_update(u);
+      // std::cout << "📤 发送2D删除命令 - 窗口: " << window_name
+      //           << ", 对象: " << object_id << std::endl;
     }
 
     m_tracked_objects.erase(it);
   }
 
-  void flush_dirty_set_2d_unlocked(const std::string& window_name) {
-    auto& dirty_set = m_dirty_objects_2d[window_name];
+  void flush_dirty_set_2d_unlocked(const std::string& window_uuid) {
+    auto& dirty_set = m_dirty_objects_2d[window_uuid];
     if (dirty_set.empty()) return;
 
-    std::string window_id = get_window_id_for_name(window_name, false);
-    if (window_id.empty()) return;
+    std::string window_name = "";
+    auto window_it = m_windows.find(window_uuid);
+    if (window_it != m_windows.end()) {
+      window_name = window_it->second.display_name;
+    }
 
     visualization::Scene2DUpdate scene_update;
-    scene_update.set_window_id(window_id);
+    scene_update.set_window_id(window_uuid);
+    scene_update.set_window_name(window_name);
 
     std::vector<std::string> processed_ids;
 
@@ -560,15 +837,19 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     }
   }
 
-  void flush_dirty_set_3d_unlocked(const std::string& window_name) {
-    auto& dirty_set = m_dirty_objects_3d[window_name];
+  void flush_dirty_set_3d_unlocked(const std::string& window_uuid) {
+    auto& dirty_set = m_dirty_objects_3d[window_uuid];
     if (dirty_set.empty()) return;
 
-    std::string window_id = get_window_id_for_name(window_name, true);
-    if (window_id.empty()) return;
+    std::string window_name = "";
+    auto window_it = m_windows.find(window_uuid);
+    if (window_it != m_windows.end()) {
+      window_name = window_it->second.display_name;
+    }
 
     visualization::Scene3DUpdate scene_update;
-    scene_update.set_window_id(window_id);
+    scene_update.set_window_id(window_uuid);
+    scene_update.set_window_name(window_name);
 
     std::vector<std::string> processed_ids;
 
@@ -599,19 +880,12 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
 
   std::string get_window_id_for_name(const std::string& window_name,
                                      bool is_3d) {
-    auto window_it = m_windows.find(window_name);
-    if (window_it == m_windows.end() || window_it->second.is_3d != is_3d) {
-      return "";
-    }
-
-    for (const auto& pair : m_connections) {
-      return pair.first;
-    }
-    return "";
+    return get_uuid_for_name(window_name, is_3d);
   }
 
   void populate_2d_geometry(std::shared_ptr<Vis::Observable> obj,
                             visualization::Add2DObject* cmd) {
+    if (!obj) return;
     if (auto p = std::dynamic_pointer_cast<Vis::Point2D>(obj)) {
       to_proto(*p, cmd->mutable_point_2d());
     } else if (auto p = std::dynamic_pointer_cast<Vis::Pose2D>(obj)) {
@@ -626,6 +900,8 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       to_proto(*p, cmd->mutable_trajectory_2d());
     } else if (auto p = std::dynamic_pointer_cast<Vis::Polygon>(obj)) {
       to_proto(*p, cmd->mutable_polygon());
+    } else {
+      std::cerr << "Warning: Unknown 2D object type" << std::endl;
     }
   }
 
@@ -697,27 +973,90 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       schedule_auto_flush();
     }
   }
+  /**
+   * 发送窗口创建命令到前端
+   */
+  void send_window_create_command(const std::string& uuid,
+                                  const std::string& window_name, bool is_3d) {
+    if (!m_has_connection) return;
 
-  void on_open(connection_hdl hdl) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    std::string window_id =
-        boost::uuids::to_string(boost::uuids::random_generator()());
-    m_connections[window_id] = hdl;
-    std::cout << "Client connected. Assigned window_id: " << window_id
-              << std::endl;
+    if (is_3d) {
+      visualization::Scene3DUpdate scene_update;
+      scene_update.set_window_id(uuid);
+      scene_update.set_window_name(window_name);
+      auto* cmd = scene_update.add_commands()->mutable_create_window();
+      cmd->set_window_name(window_name);
+      cmd->set_window_id(uuid);
+      send_update(scene_update);
+    } else {
+      visualization::Scene2DUpdate scene_update;
+      scene_update.set_window_id(uuid);
+      scene_update.set_window_name(window_name);
+      auto* cmd = scene_update.add_commands()->mutable_create_window();
+      cmd->set_window_name(window_name);
+      cmd->set_window_id(uuid);
+      send_update(scene_update);
+    }
+
+    // std::cout << "📤 发送窗口创建命令: " << window_name << std::endl;
   }
 
-  void on_close(connection_hdl hdl) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    for (auto it = m_connections.begin(); it != m_connections.end(); ++it) {
-      if (!it->second.owner_before(hdl) && !hdl.owner_before(it->second)) {
-        std::cout << "Client disconnected: " << it->first << std::endl;
-        m_connections.erase(it);
-        break;
+  void send_existing_objects(const std::string& window_uuid, bool is_3d) {
+    auto it = m_window_objects.find(window_uuid);
+    if (it == m_window_objects.end()) return;
+
+    for (const auto& object_id : it->second) {
+      auto tracked_it = m_tracked_objects.find(object_id);
+      if (tracked_it == m_tracked_objects.end()) continue;
+
+      const auto& tracked = tracked_it->second;
+      auto obj = tracked.obj_ptr.lock();
+      if (!obj) continue;
+
+      if (is_3d) {
+        visualization::Scene3DUpdate scene_update;
+        scene_update.set_window_id(window_uuid);
+        auto* cmd = scene_update.add_commands()->mutable_add_object();
+        cmd->set_id(object_id);
+        cmd->mutable_material()->CopyFrom(tracked.material);
+        populate_3d_geometry(obj, cmd);
+        send_update(scene_update);
+      } else {
+        visualization::Scene2DUpdate scene_update;
+        scene_update.set_window_id(window_uuid);
+        auto* cmd = scene_update.add_commands()->mutable_add_object();
+        cmd->set_id(object_id);
+        cmd->mutable_material()->CopyFrom(tracked.material);
+        populate_2d_geometry(obj, cmd);
+        send_update(scene_update);
       }
     }
   }
-};
+
+  void on_open(connection_hdl hdl) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_current_connection = hdl;
+    m_has_connection = true;
+
+    // 为所有已创建的窗口发送创建命令和现有对象
+    for (const auto& [window_uuid, window_info] : m_windows) {
+      send_window_create_command(window_uuid, window_info.display_name,
+                                 window_info.is_3d);
+      send_existing_objects(window_uuid, window_info.is_3d);
+    }
+
+    std::cout << "✅ 客户端连接成功，已发送 " << m_windows.size()
+              << " 个窗口信息" << std::endl;
+  }
+
+  void on_close(connection_hdl hdl) {
+    (void)hdl;  // 明确标记参数未使用
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_has_connection = false;
+    std::cout << "Client disconnected." << std::endl;
+  }
+
+};  // ServerImpl 类定义结束
 
 // --- VisualizationServer 实现 ---
 uint16_t VisualizationServer::m_port = 0;
@@ -754,65 +1093,37 @@ void VisualizationServer::stop() { m_impl->stop(); }
 std::vector<std::string> VisualizationServer::get_connected_windows() {
   return m_impl->get_connected_windows();
 }
-
-void VisualizationServer::add(std::shared_ptr<Vis::Observable> obj,
-                              const std::string& window_name,
-                              const visualization::Material& material,
-                              bool is_3d) {
-  m_impl->add(obj, window_name, material, is_3d);
+bool VisualizationServer::is_connected() const {
+  return m_impl->is_connected();
 }
-
 void VisualizationServer::add(std::shared_ptr<Vis::Observable> obj,
-                              const size_t& window_idx,
+                              const std::string& name,
                               const visualization::Material& material,
                               bool is_3d) {
-  m_impl->add(obj, "window_" + std::to_string(window_idx), material, is_3d);
+  m_impl->add(obj, name, material, is_3d);
 }
 
 void VisualizationServer::add(const Vis::Observable& obj,
-                              const std::string& window_name,
+                              const std::string& name,
                               const visualization::Material& material,
                               bool is_3d) {
-  m_impl->add(obj, window_name, material, is_3d);
+  m_impl->add(obj, name, material, is_3d);
 }
 
-void VisualizationServer::add(const Vis::Observable& obj,
-                              const size_t& window_idx,
-                              const visualization::Material& material,
-                              bool is_3d) {
-  m_impl->add(obj, "window_" + std::to_string(window_idx), material, is_3d);
+void VisualizationServer::clear_static(const std::string& name, bool is_3d) {
+  m_impl->clear_static(name, is_3d);
 }
 
-void VisualizationServer::clear_static(const std::string& window_name) {
-  m_impl->clear_static(window_name);
+void VisualizationServer::clear_dynamic(const std::string& name, bool is_3d) {
+  m_impl->clear_dynamic(name, is_3d);
 }
 
-void VisualizationServer::clear_static(const size_t& window_idx) {
-  m_impl->clear_static("window_" + std::to_string(window_idx));
-}
-
-void VisualizationServer::clear_dynamic(const std::string& window_name) {
-  m_impl->clear_dynamic(window_name);
-}
-
-void VisualizationServer::clear_dynamic(const size_t& window_idx) {
-  m_impl->clear_dynamic("window_" + std::to_string(window_idx));
-}
-
-void VisualizationServer::clear(const std::string& window_name) {
-  m_impl->clear(window_name);
-}
-
-void VisualizationServer::clear(const size_t& window_idx) {
-  m_impl->clear("window_" + std::to_string(window_idx));
+void VisualizationServer::clear(const std::string& name, bool is_3d) {
+  m_impl->clear(name, is_3d);
 }
 
 void VisualizationServer::drawnow(const std::string& name, const bool& is_3d) {
   m_impl->drawnow(name, is_3d);
-}
-
-void VisualizationServer::drawnow(const size_t& window_idx, const bool& is_3d) {
-  m_impl->drawnow("window_" + std::to_string(window_idx), is_3d);
 }
 
 void VisualizationServer::set_auto_update_policy(bool enabled, int threshold,
@@ -820,7 +1131,7 @@ void VisualizationServer::set_auto_update_policy(bool enabled, int threshold,
   m_impl->set_auto_update_policy(enabled, threshold, interval_ms);
 }
 
-void VisualizationServer::create_window(const std::string& name,
+bool VisualizationServer::create_window(const std::string& name,
                                         const bool& is_3d) {
   m_impl->create_window(name, is_3d);
 }
@@ -830,17 +1141,10 @@ bool VisualizationServer::remove_window(const std::string& name,
   return m_impl->remove_window(name, is_3d);
 }
 
-void VisualizationServer::set_title(const std::string& old_name,
-                                    const std::string& name, bool is_3d) {
-  m_impl->send_window_command<visualization::Command3D,
-                              visualization::Scene3DUpdate>(
-      old_name, is_3d,
-      [&](auto* cmd) { cmd->mutable_set_title()->set_title(name); });
-}
-
-void VisualizationServer::set_title(const size_t& window_idx,
-                                    const std::string& name, bool is_3d) {
-  set_title("window_" + std::to_string(window_idx), name, is_3d);
+bool VisualizationServer::rename_window(const std::string& old_name,
+                                        const std::string& new_name,
+                                        bool is_3d) {
+  return m_impl->rename_window(old_name, new_name, is_3d);
 }
 
 void VisualizationServer::set_grid_visible(const std::string& name,
@@ -852,11 +1156,6 @@ void VisualizationServer::set_grid_visible(const std::string& name,
       });
 }
 
-void VisualizationServer::set_grid_visible(const size_t& window_idx,
-                                           bool visible, bool is_3d) {
-  set_grid_visible("window_" + std::to_string(window_idx), visible, is_3d);
-}
-
 void VisualizationServer::set_axes_visible(const std::string& name,
                                            bool visible, bool is_3d) {
   m_impl->send_window_command<visualization::Command3D,
@@ -864,11 +1163,6 @@ void VisualizationServer::set_axes_visible(const std::string& name,
       name, is_3d, [&](auto* cmd) {
         cmd->mutable_set_axes_visible()->set_visible(visible);
       });
-}
-
-void VisualizationServer::set_axes_visible(const size_t& window_idx,
-                                           bool visible, bool is_3d) {
-  set_axes_visible("window_" + std::to_string(window_idx), visible, is_3d);
 }
 
 void VisualizationServer::set_legend_visible(const std::string& name,
@@ -879,20 +1173,15 @@ void VisualizationServer::set_legend_visible(const std::string& name,
       [&](auto* cmd) { cmd->mutable_set_legend()->set_visible(visible); });
 }
 
-void VisualizationServer::set_legend_visible(const size_t& window_idx,
-                                             bool visible, bool is_3d) {
-  set_legend_visible("window_" + std::to_string(window_idx), visible, is_3d);
-}
-
-std::vector<std::string> VisualizationServer::get_windows_name(
+std::vector<std::string> VisualizationServer::get_window_names(
     const bool& is_3d) {
-  return m_impl->get_windows_name(is_3d);
+  return m_impl->get_window_names(is_3d);
 }
 
-size_t VisualizationServer::getTotalWindows() const {
-  return m_impl->getTotalWindows();
+size_t VisualizationServer::get_windows_number() const {
+  return m_impl->get_windows_number();
 }
 
-size_t VisualizationServer::getTotalObservables() const {
-  return m_impl->getTotalObservables();
+size_t VisualizationServer::get_observables_number() const {
+  return m_impl->get_observables_number();
 }

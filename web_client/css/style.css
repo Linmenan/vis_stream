@@ -1,144 +1,202 @@
-/* General body and canvas styles */
+/* 重置和基础样式 */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
 body,
 html {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    margin: 0;
     width: 100%;
     height: 100%;
     background-color: #f0f0f0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    overflow-y: auto;
+    padding: 0;
+    margin: 0;
 }
 
-canvas {
+/* 主窗口容器 - 单列网格布局 */
+#window-container {
+    display: grid;
+    grid-template-columns: 1fr;
+    /* 关键：只有一列 */
+    gap: 20px;
+    padding: 20px;
+    width: 100%;
+    max-width: 1500px;
+    margin: 0 auto;
+    /* 居中 */
+    box-sizing: border-box;
+}
+
+/* 每个子窗口 - 占满整个网格单元格 */
+.plot-window {
+    background-color: #fff;
+    border: 1px solid #ccc;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    padding: 20px;
+    box-sizing: border-box;
+    width: 100%;
+    /* 关键：100%宽度 */
+    height: 900px;
     display: block;
 }
 
-/* 2D Figure Container Styles */
-.figure-container {
-    /* [修改] 使用 display: grid */
+/* 2D窗口内部网格布局 */
+.plot-window-2d .figure-container {
     display: grid;
-
-    /* 定义网格的列：第一列占据剩余空间，第二列固定200px宽 */
     grid-template-columns: 1fr 200px;
-
-    /* 定义网格的行：标题和工具栏高度自适应，中间的绘图区占据剩余高度 */
     grid-template-rows: auto 1fr auto;
-
-    /* 为网格区域命名，方便后续元素定位 */
     grid-template-areas:
         "title   title"
         "plot    legend"
         "toolbar toolbar";
-
-    /* 其他样式保持不变 */
-    background-color: #fff;
-    border: 1px solid #ccc;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-    padding: 1.5em;
-    box-sizing: border-box;
-    width: 1450px;
-    /* 宽度需要适应 1200px + 200px + 间隙 */
-    height: 900px;
-    /* 高度可以适当增加以容纳标题和工具栏 */
     gap: 1em;
-    /* 定义网格行和列之间的间距 */
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
 }
 
-.figure-title {
+.plot-window-2d .figure-title {
     grid-area: title;
-    /* 放置在名为 'title' 的区域 */
     text-align: center;
     margin: 0;
     font-size: 1.5em;
     color: #333;
+    padding: 10px 0;
+    border-bottom: 1px solid #eee;
 }
 
-.plot-area {
+.plot-window-2d .plot-area {
     grid-area: plot;
-    /* 放置在名为 'plot' 的区域 */
-    position: relative;
-    /* [重要] 绘图区的高度和宽度将由网格自动管理，无需设置固定值 */
     display: grid;
     grid-template-columns: 60px 1fr;
     grid-template-rows: 1fr 40px;
+    width: 100%;
+    height: 100%;
+    position: relative;
+    background-color: #fafafa;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
 }
 
-.canvas-container {
+.plot-window-2d .canvas-container {
+    grid-column: 2;
+    grid-row: 1;
     position: relative;
     width: 100%;
     height: 100%;
     overflow: hidden;
     cursor: crosshair;
     background-color: #ffffff;
-    /* Border is handled by axis containers now */
-    grid-column: 2;
-    grid-row: 1;
 }
 
-/* Dynamic Axis and Ticks Styles */
-.axis-container {
+.plot-window-2d .axis-container {
     position: relative;
     overflow: hidden;
     user-select: none;
+    background-color: #f9f9f9;
 }
 
-.y-axis {
+.plot-window-2d .y-axis {
     grid-column: 1;
     grid-row: 1;
     border-right: 1px solid #aaa;
 }
 
-.x-axis {
+.plot-window-2d .x-axis {
     grid-column: 2;
     grid-row: 2;
     border-top: 1px solid #aaa;
 }
 
-.axis-label-x,
-.axis-label-y {
-    position: absolute;
-    font-size: 10px;
-    color: #555;
-    white-space: nowrap;
-}
-
-.axis-label-x {
-    bottom: 5px;
-    transform: translateX(-50%);
-    /* Horizontally center the label */
-}
-
-.axis-label-y {
-    right: 5px;
-    transform: translateY(-50%);
-    /* Vertically center the label */
-}
-
-/* Toolbar Styles */
-.toolbar {
-    grid-area: toolbar;
-    /* 放置在名为 'toolbar' 的区域 */
-    /* [修改] margin-top 不再需要，由 grid-gap 控制间距 */
+.plot-window-2d .legend-container {
+    grid-area: legend;
+    overflow-y: auto;
+    background-color: #f7f7ff;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    padding: 15px;
+    font-size: 0.9em;
     display: flex;
-    /* [修改] justify-content 控制内部元素在整个区域的右侧 */
+    flex-direction: column;
+    gap: 8px;
+    max-height: 100%;
+}
+
+.plot-window-2d .toolbar {
+    grid-area: toolbar;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 1em;
+    padding: 10px 0;
+    border-top: 1px solid #eee;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    margin-top: 10px;
+}
+
+/* 3D窗口特殊样式 */
+.plot-window-3d .figure-container {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    gap: 10px;
+}
+
+.plot-window-3d .figure-title {
+    text-align: center;
+    margin: 0;
+    font-size: 1.5em;
+    color: #333;
+    padding: 10px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.plot-window-3d .canvas-container {
+    flex: 1;
+    position: relative;
+    background-color: #222222;
+    width: 100%;
+    height: 100%;
+    border: 1px solid #444;
+    border-radius: 4px;
+}
+
+.plot-window-3d .toolbar {
+    padding: 15px;
+    background-color: #f8f9fa;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    display: flex;
     justify-content: flex-end;
     align-items: center;
     gap: 1em;
 }
 
+/* 通用工具栏样式 */
 .toolbar button {
-    padding: 0.5em 1em;
+    padding: 8px 16px;
     border: 1px solid #ccc;
     background-color: #f7f7f7;
     cursor: pointer;
     border-radius: 4px;
+    font-size: 0.9em;
+    transition: all 0.2s ease;
+    color: #333;
 }
 
 .toolbar button:hover {
     background-color: #e9e9e9;
     border-color: #bbb;
+    transform: translateY(-1px);
+}
+
+.toolbar button:active {
+    transform: translateY(0);
 }
 
 .toolbar-label {
@@ -149,22 +207,65 @@ canvas {
     color: #444;
     cursor: pointer;
     user-select: none;
+    padding: 5px 10px;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
 }
 
-/* Crosshair and Tooltip Styles */
+.toolbar-label:hover {
+    background-color: #f0f0f0;
+}
+
+.toolbar-label input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
+}
+
+/* 确保Three.js canvas填满容器 */
+.plot-window canvas {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+}
+
+/* 坐标轴标签 */
+.axis-label-x,
+.axis-label-y {
+    position: absolute;
+    font-size: 10px;
+    color: #555;
+    white-space: nowrap;
+    background-color: rgba(255, 255, 255, 0.8);
+    padding: 2px 4px;
+    border-radius: 2px;
+    pointer-events: none;
+}
+
+.axis-label-x {
+    bottom: 5px;
+    transform: translateX(-50%);
+}
+
+.axis-label-y {
+    right: 5px;
+    transform: translateY(-50%);
+}
+
+/* 十字准线和工具提示 */
 .crosshair {
     position: absolute;
     background-color: rgba(50, 50, 50, 0.5);
     pointer-events: none;
+    z-index: 10;
 }
 
-#crosshair-x {
+.crosshair-x {
     width: 100%;
     height: 1px;
     left: 0;
 }
 
-#crosshair-y {
+.crosshair-y {
     width: 1px;
     height: 100%;
     top: 0;
@@ -172,39 +273,30 @@ canvas {
 
 .coord-tooltip {
     position: absolute;
-    background-color: rgba(0, 0, 0, 0.7);
+    background-color: rgba(0, 0, 0, 0.8);
     color: white;
-    padding: 5px 8px;
+    padding: 6px 10px;
     border-radius: 4px;
-    font-size: 0.9em;
+    font-size: 0.85em;
     pointer-events: none;
     display: none;
     white-space: nowrap;
+    z-index: 1000;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
-/* Legend Styles */
-.legend-container {
-    grid-area: legend;
-    /* 放置在名为 'legend' 的区域 */
-    /* 高度由网格自动拉伸，宽度在 .figure-container 中已定义 */
-    overflow-y: auto;
-    /* 保持内容过多时滚动 */
-
-    background-color: #f7f7ff;
-    border: 1px solid #ccc;
-    border-radius: 5px;
-    padding: 10px;
-    font-size: 0.9em;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    box-sizing: border-box;
-}
-
+/* 图例项 */
 .legend-item {
     display: flex;
     align-items: center;
     gap: 8px;
+    padding: 4px 8px;
+    border-radius: 3px;
+    transition: background-color 0.2s ease;
+}
+
+.legend-item:hover {
+    background-color: rgba(0, 0, 0, 0.05);
 }
 
 .legend-color-swatch {
@@ -212,8 +304,182 @@ canvas {
     width: 25px;
     height: 10px;
     border: 1px solid #888;
+    flex-shrink: 0;
+    border-radius: 2px;
 }
 
 .legend-label {
     color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.85em;
+}
+
+/* 滚动条样式 */
+.legend-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.legend-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.legend-container::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+.legend-container::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+/* 响应式设计 */
+@media (max-width: 1600px) {
+    #window-container {
+        max-width: 95%;
+    }
+
+    .plot-window {
+        height: 800px;
+    }
+}
+
+@media (max-width: 1200px) {
+    .plot-window {
+        height: 700px;
+        padding: 15px;
+    }
+
+    .plot-window-2d .figure-container {
+        grid-template-columns: 1fr 180px;
+        gap: 0.8em;
+    }
+
+    .plot-window-2d .plot-area {
+        grid-template-columns: 50px 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    #window-container {
+        padding: 10px;
+        gap: 15px;
+    }
+
+    .plot-window {
+        height: 600px;
+        padding: 10px;
+    }
+
+    .plot-window-2d .figure-container {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr auto auto;
+        grid-template-areas:
+            "title"
+            "plot"
+            "legend"
+            "toolbar";
+    }
+
+    .plot-window-2d .legend-container {
+        max-height: 150px;
+    }
+
+    .toolbar {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+}
+
+/* 加载状态 */
+.plot-window.loading {
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.plot-window.loading::after {
+    content: "加载中...";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+/* 连接状态指示 */
+.plot-window.disconnected .figure-title::after {
+    content: " (已断开)";
+    color: #ff6b6b;
+    font-size: 0.8em;
+    font-weight: normal;
+}
+
+/* 动画效果 */
+.plot-window {
+    animation: fadeInUp 0.3s ease-out;
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 删除窗口时的动画 */
+.plot-window.removing {
+    animation: fadeOutDown 0.3s ease-in forwards;
+}
+
+@keyframes fadeOutDown {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    to {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+}
+
+/* 高对比度模式支持 */
+@media (prefers-contrast: high) {
+    .plot-window {
+        border: 2px solid #000;
+    }
+
+    .plot-window-2d .plot-area {
+        border: 2px solid #000;
+    }
+
+    .toolbar button {
+        border: 2px solid #000;
+    }
+}
+
+/* 减少动画模式 */
+@media (prefers-reduced-motion: reduce) {
+    .plot-window {
+        animation: none;
+    }
+
+    .toolbar button {
+        transition: none;
+    }
+
+    .legend-item {
+        transition: none;
+    }
 }

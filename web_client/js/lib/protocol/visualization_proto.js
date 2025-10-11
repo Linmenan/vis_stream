@@ -17,7 +17,9 @@ goog.provide('proto.visualization.Circle');
 goog.provide('proto.visualization.ColorRGBA');
 goog.provide('proto.visualization.Command2D');
 goog.provide('proto.visualization.Command3D');
+goog.provide('proto.visualization.CreateWindow');
 goog.provide('proto.visualization.DeleteObject');
+goog.provide('proto.visualization.DeleteWindow');
 goog.provide('proto.visualization.Line2D');
 goog.provide('proto.visualization.Material');
 goog.provide('proto.visualization.Material.LineStyle');
@@ -7140,6 +7142,317 @@ proto.visualization.Set2DAxisProperties.prototype.setAutoScale = function(value)
  * @extends {jspb.Message}
  * @constructor
  */
+proto.visualization.CreateWindow = function(opt_data) {
+  jspb.Message.initialize(this, opt_data, 0, -1, null, null);
+};
+goog.inherits(proto.visualization.CreateWindow, jspb.Message);
+if (goog.DEBUG && !COMPILED) {
+  proto.visualization.CreateWindow.displayName = 'proto.visualization.CreateWindow';
+}
+
+
+if (jspb.Message.GENERATE_TO_OBJECT) {
+/**
+ * Creates an object representation of this proto suitable for use in Soy templates.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     com.google.apps.jspb.JsClassTemplate.JS_RESERVED_WORDS.
+ * @param {boolean=} opt_includeInstance Whether to include the JSPB instance
+ *     for transitional soy proto support: http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.visualization.CreateWindow.prototype.toObject = function(opt_includeInstance) {
+  return proto.visualization.CreateWindow.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Whether to include the JSPB
+ *     instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.visualization.CreateWindow} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.visualization.CreateWindow.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    windowId: jspb.Message.getFieldWithDefault(msg, 1, ""),
+    windowName: jspb.Message.getFieldWithDefault(msg, 2, "")
+  };
+
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
+}
+
+
+/**
+ * Deserializes binary data (in protobuf wire format).
+ * @param {jspb.ByteSource} bytes The bytes to deserialize.
+ * @return {!proto.visualization.CreateWindow}
+ */
+proto.visualization.CreateWindow.deserializeBinary = function(bytes) {
+  var reader = new jspb.BinaryReader(bytes);
+  var msg = new proto.visualization.CreateWindow;
+  return proto.visualization.CreateWindow.deserializeBinaryFromReader(msg, reader);
+};
+
+
+/**
+ * Deserializes binary data (in protobuf wire format) from the
+ * given reader into the given message object.
+ * @param {!proto.visualization.CreateWindow} msg The message object to deserialize into.
+ * @param {!jspb.BinaryReader} reader The BinaryReader to use.
+ * @return {!proto.visualization.CreateWindow}
+ */
+proto.visualization.CreateWindow.deserializeBinaryFromReader = function(msg, reader) {
+  while (reader.nextField()) {
+    if (reader.isEndGroup()) {
+      break;
+    }
+    var field = reader.getFieldNumber();
+    switch (field) {
+    case 1:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setWindowId(value);
+      break;
+    case 2:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setWindowName(value);
+      break;
+    default:
+      reader.skipField();
+      break;
+    }
+  }
+  return msg;
+};
+
+
+/**
+ * Serializes the message to binary data (in protobuf wire format).
+ * @return {!Uint8Array}
+ */
+proto.visualization.CreateWindow.prototype.serializeBinary = function() {
+  var writer = new jspb.BinaryWriter();
+  proto.visualization.CreateWindow.serializeBinaryToWriter(this, writer);
+  return writer.getResultBuffer();
+};
+
+
+/**
+ * Serializes the given message to binary data (in protobuf wire
+ * format), writing to the given BinaryWriter.
+ * @param {!proto.visualization.CreateWindow} message
+ * @param {!jspb.BinaryWriter} writer
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.visualization.CreateWindow.serializeBinaryToWriter = function(message, writer) {
+  var f = undefined;
+  f = message.getWindowId();
+  if (f.length > 0) {
+    writer.writeString(
+      1,
+      f
+    );
+  }
+  f = message.getWindowName();
+  if (f.length > 0) {
+    writer.writeString(
+      2,
+      f
+    );
+  }
+};
+
+
+/**
+ * optional string window_id = 1;
+ * @return {string}
+ */
+proto.visualization.CreateWindow.prototype.getWindowId = function() {
+  return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 1, ""));
+};
+
+
+/** @param {string} value */
+proto.visualization.CreateWindow.prototype.setWindowId = function(value) {
+  jspb.Message.setProto3StringField(this, 1, value);
+};
+
+
+/**
+ * optional string window_name = 2;
+ * @return {string}
+ */
+proto.visualization.CreateWindow.prototype.getWindowName = function() {
+  return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 2, ""));
+};
+
+
+/** @param {string} value */
+proto.visualization.CreateWindow.prototype.setWindowName = function(value) {
+  jspb.Message.setProto3StringField(this, 2, value);
+};
+
+
+
+/**
+ * Generated by JsPbCodeGenerator.
+ * @param {Array=} opt_data Optional initial data array, typically from a
+ * server response, or constructed directly in Javascript. The array is used
+ * in place and becomes part of the constructed object. It is not cloned.
+ * If no data is provided, the constructed object will be empty, but still
+ * valid.
+ * @extends {jspb.Message}
+ * @constructor
+ */
+proto.visualization.DeleteWindow = function(opt_data) {
+  jspb.Message.initialize(this, opt_data, 0, -1, null, null);
+};
+goog.inherits(proto.visualization.DeleteWindow, jspb.Message);
+if (goog.DEBUG && !COMPILED) {
+  proto.visualization.DeleteWindow.displayName = 'proto.visualization.DeleteWindow';
+}
+
+
+if (jspb.Message.GENERATE_TO_OBJECT) {
+/**
+ * Creates an object representation of this proto suitable for use in Soy templates.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     com.google.apps.jspb.JsClassTemplate.JS_RESERVED_WORDS.
+ * @param {boolean=} opt_includeInstance Whether to include the JSPB instance
+ *     for transitional soy proto support: http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.visualization.DeleteWindow.prototype.toObject = function(opt_includeInstance) {
+  return proto.visualization.DeleteWindow.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Whether to include the JSPB
+ *     instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.visualization.DeleteWindow} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.visualization.DeleteWindow.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    windowId: jspb.Message.getFieldWithDefault(msg, 1, "")
+  };
+
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
+}
+
+
+/**
+ * Deserializes binary data (in protobuf wire format).
+ * @param {jspb.ByteSource} bytes The bytes to deserialize.
+ * @return {!proto.visualization.DeleteWindow}
+ */
+proto.visualization.DeleteWindow.deserializeBinary = function(bytes) {
+  var reader = new jspb.BinaryReader(bytes);
+  var msg = new proto.visualization.DeleteWindow;
+  return proto.visualization.DeleteWindow.deserializeBinaryFromReader(msg, reader);
+};
+
+
+/**
+ * Deserializes binary data (in protobuf wire format) from the
+ * given reader into the given message object.
+ * @param {!proto.visualization.DeleteWindow} msg The message object to deserialize into.
+ * @param {!jspb.BinaryReader} reader The BinaryReader to use.
+ * @return {!proto.visualization.DeleteWindow}
+ */
+proto.visualization.DeleteWindow.deserializeBinaryFromReader = function(msg, reader) {
+  while (reader.nextField()) {
+    if (reader.isEndGroup()) {
+      break;
+    }
+    var field = reader.getFieldNumber();
+    switch (field) {
+    case 1:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setWindowId(value);
+      break;
+    default:
+      reader.skipField();
+      break;
+    }
+  }
+  return msg;
+};
+
+
+/**
+ * Serializes the message to binary data (in protobuf wire format).
+ * @return {!Uint8Array}
+ */
+proto.visualization.DeleteWindow.prototype.serializeBinary = function() {
+  var writer = new jspb.BinaryWriter();
+  proto.visualization.DeleteWindow.serializeBinaryToWriter(this, writer);
+  return writer.getResultBuffer();
+};
+
+
+/**
+ * Serializes the given message to binary data (in protobuf wire
+ * format), writing to the given BinaryWriter.
+ * @param {!proto.visualization.DeleteWindow} message
+ * @param {!jspb.BinaryWriter} writer
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.visualization.DeleteWindow.serializeBinaryToWriter = function(message, writer) {
+  var f = undefined;
+  f = message.getWindowId();
+  if (f.length > 0) {
+    writer.writeString(
+      1,
+      f
+    );
+  }
+};
+
+
+/**
+ * optional string window_id = 1;
+ * @return {string}
+ */
+proto.visualization.DeleteWindow.prototype.getWindowId = function() {
+  return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 1, ""));
+};
+
+
+/** @param {string} value */
+proto.visualization.DeleteWindow.prototype.setWindowId = function(value) {
+  jspb.Message.setProto3StringField(this, 1, value);
+};
+
+
+
+/**
+ * Generated by JsPbCodeGenerator.
+ * @param {Array=} opt_data Optional initial data array, typically from a
+ * server response, or constructed directly in Javascript. The array is used
+ * in place and becomes part of the constructed object. It is not cloned.
+ * If no data is provided, the constructed object will be empty, but still
+ * valid.
+ * @extends {jspb.Message}
+ * @constructor
+ */
 proto.visualization.Command2D = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, null, proto.visualization.Command2D.oneofGroups_);
 };
@@ -7155,7 +7468,7 @@ if (goog.DEBUG && !COMPILED) {
  * @private {!Array<!Array<number>>}
  * @const
  */
-proto.visualization.Command2D.oneofGroups_ = [[1,2,3,4,10,11,12,13,14]];
+proto.visualization.Command2D.oneofGroups_ = [[1,2,3,4,10,11,12,13,14,15,16]];
 
 /**
  * @enum {number}
@@ -7170,7 +7483,9 @@ proto.visualization.Command2D.CommandTypeCase = {
   SET_AXES_VISIBLE: 11,
   SET_TITLE: 12,
   SET_LEGEND: 13,
-  SET_AXIS_PROPERTIES: 14
+  SET_AXIS_PROPERTIES: 14,
+  CREATE_WINDOW: 15,
+  DELETE_WINDOW: 16
 };
 
 /**
@@ -7217,7 +7532,9 @@ proto.visualization.Command2D.toObject = function(includeInstance, msg) {
     setAxesVisible: (f = msg.getSetAxesVisible()) && proto.visualization.SetAxesVisible.toObject(includeInstance, f),
     setTitle: (f = msg.getSetTitle()) && proto.visualization.SetTitle.toObject(includeInstance, f),
     setLegend: (f = msg.getSetLegend()) && proto.visualization.SetLegend.toObject(includeInstance, f),
-    setAxisProperties: (f = msg.getSetAxisProperties()) && proto.visualization.Set2DAxisProperties.toObject(includeInstance, f)
+    setAxisProperties: (f = msg.getSetAxisProperties()) && proto.visualization.Set2DAxisProperties.toObject(includeInstance, f),
+    createWindow: (f = msg.getCreateWindow()) && proto.visualization.CreateWindow.toObject(includeInstance, f),
+    deleteWindow: (f = msg.getDeleteWindow()) && proto.visualization.DeleteWindow.toObject(includeInstance, f)
   };
 
   if (includeInstance) {
@@ -7298,6 +7615,16 @@ proto.visualization.Command2D.deserializeBinaryFromReader = function(msg, reader
       var value = new proto.visualization.Set2DAxisProperties;
       reader.readMessage(value,proto.visualization.Set2DAxisProperties.deserializeBinaryFromReader);
       msg.setSetAxisProperties(value);
+      break;
+    case 15:
+      var value = new proto.visualization.CreateWindow;
+      reader.readMessage(value,proto.visualization.CreateWindow.deserializeBinaryFromReader);
+      msg.setCreateWindow(value);
+      break;
+    case 16:
+      var value = new proto.visualization.DeleteWindow;
+      reader.readMessage(value,proto.visualization.DeleteWindow.deserializeBinaryFromReader);
+      msg.setDeleteWindow(value);
       break;
     default:
       reader.skipField();
@@ -7398,6 +7725,22 @@ proto.visualization.Command2D.serializeBinaryToWriter = function(message, writer
       14,
       f,
       proto.visualization.Set2DAxisProperties.serializeBinaryToWriter
+    );
+  }
+  f = message.getCreateWindow();
+  if (f != null) {
+    writer.writeMessage(
+      15,
+      f,
+      proto.visualization.CreateWindow.serializeBinaryToWriter
+    );
+  }
+  f = message.getDeleteWindow();
+  if (f != null) {
+    writer.writeMessage(
+      16,
+      f,
+      proto.visualization.DeleteWindow.serializeBinaryToWriter
     );
   }
 };
@@ -7673,6 +8016,66 @@ proto.visualization.Command2D.prototype.hasSetAxisProperties = function() {
 };
 
 
+/**
+ * optional CreateWindow create_window = 15;
+ * @return {?proto.visualization.CreateWindow}
+ */
+proto.visualization.Command2D.prototype.getCreateWindow = function() {
+  return /** @type{?proto.visualization.CreateWindow} */ (
+    jspb.Message.getWrapperField(this, proto.visualization.CreateWindow, 15));
+};
+
+
+/** @param {?proto.visualization.CreateWindow|undefined} value */
+proto.visualization.Command2D.prototype.setCreateWindow = function(value) {
+  jspb.Message.setOneofWrapperField(this, 15, proto.visualization.Command2D.oneofGroups_[0], value);
+};
+
+
+proto.visualization.Command2D.prototype.clearCreateWindow = function() {
+  this.setCreateWindow(undefined);
+};
+
+
+/**
+ * Returns whether this field is set.
+ * @return {!boolean}
+ */
+proto.visualization.Command2D.prototype.hasCreateWindow = function() {
+  return jspb.Message.getField(this, 15) != null;
+};
+
+
+/**
+ * optional DeleteWindow delete_window = 16;
+ * @return {?proto.visualization.DeleteWindow}
+ */
+proto.visualization.Command2D.prototype.getDeleteWindow = function() {
+  return /** @type{?proto.visualization.DeleteWindow} */ (
+    jspb.Message.getWrapperField(this, proto.visualization.DeleteWindow, 16));
+};
+
+
+/** @param {?proto.visualization.DeleteWindow|undefined} value */
+proto.visualization.Command2D.prototype.setDeleteWindow = function(value) {
+  jspb.Message.setOneofWrapperField(this, 16, proto.visualization.Command2D.oneofGroups_[0], value);
+};
+
+
+proto.visualization.Command2D.prototype.clearDeleteWindow = function() {
+  this.setDeleteWindow(undefined);
+};
+
+
+/**
+ * Returns whether this field is set.
+ * @return {!boolean}
+ */
+proto.visualization.Command2D.prototype.hasDeleteWindow = function() {
+  return jspb.Message.getField(this, 16) != null;
+};
+
+
 
 /**
  * Generated by JsPbCodeGenerator.
@@ -7699,7 +8102,7 @@ if (goog.DEBUG && !COMPILED) {
  * @private {!Array<!Array<number>>}
  * @const
  */
-proto.visualization.Command3D.oneofGroups_ = [[1,2,3,4,10,11,12,13]];
+proto.visualization.Command3D.oneofGroups_ = [[1,2,3,4,10,11,12,13,15,16]];
 
 /**
  * @enum {number}
@@ -7713,7 +8116,9 @@ proto.visualization.Command3D.CommandTypeCase = {
   SET_GRID_VISIBLE: 10,
   SET_AXES_VISIBLE: 11,
   SET_TITLE: 12,
-  SET_LEGEND: 13
+  SET_LEGEND: 13,
+  CREATE_WINDOW: 15,
+  DELETE_WINDOW: 16
 };
 
 /**
@@ -7759,7 +8164,9 @@ proto.visualization.Command3D.toObject = function(includeInstance, msg) {
     setGridVisible: (f = msg.getSetGridVisible()) && proto.visualization.SetGridVisible.toObject(includeInstance, f),
     setAxesVisible: (f = msg.getSetAxesVisible()) && proto.visualization.SetAxesVisible.toObject(includeInstance, f),
     setTitle: (f = msg.getSetTitle()) && proto.visualization.SetTitle.toObject(includeInstance, f),
-    setLegend: (f = msg.getSetLegend()) && proto.visualization.SetLegend.toObject(includeInstance, f)
+    setLegend: (f = msg.getSetLegend()) && proto.visualization.SetLegend.toObject(includeInstance, f),
+    createWindow: (f = msg.getCreateWindow()) && proto.visualization.CreateWindow.toObject(includeInstance, f),
+    deleteWindow: (f = msg.getDeleteWindow()) && proto.visualization.DeleteWindow.toObject(includeInstance, f)
   };
 
   if (includeInstance) {
@@ -7835,6 +8242,16 @@ proto.visualization.Command3D.deserializeBinaryFromReader = function(msg, reader
       var value = new proto.visualization.SetLegend;
       reader.readMessage(value,proto.visualization.SetLegend.deserializeBinaryFromReader);
       msg.setSetLegend(value);
+      break;
+    case 15:
+      var value = new proto.visualization.CreateWindow;
+      reader.readMessage(value,proto.visualization.CreateWindow.deserializeBinaryFromReader);
+      msg.setCreateWindow(value);
+      break;
+    case 16:
+      var value = new proto.visualization.DeleteWindow;
+      reader.readMessage(value,proto.visualization.DeleteWindow.deserializeBinaryFromReader);
+      msg.setDeleteWindow(value);
       break;
     default:
       reader.skipField();
@@ -7927,6 +8344,22 @@ proto.visualization.Command3D.serializeBinaryToWriter = function(message, writer
       13,
       f,
       proto.visualization.SetLegend.serializeBinaryToWriter
+    );
+  }
+  f = message.getCreateWindow();
+  if (f != null) {
+    writer.writeMessage(
+      15,
+      f,
+      proto.visualization.CreateWindow.serializeBinaryToWriter
+    );
+  }
+  f = message.getDeleteWindow();
+  if (f != null) {
+    writer.writeMessage(
+      16,
+      f,
+      proto.visualization.DeleteWindow.serializeBinaryToWriter
     );
   }
 };
@@ -8172,6 +8605,66 @@ proto.visualization.Command3D.prototype.hasSetLegend = function() {
 };
 
 
+/**
+ * optional CreateWindow create_window = 15;
+ * @return {?proto.visualization.CreateWindow}
+ */
+proto.visualization.Command3D.prototype.getCreateWindow = function() {
+  return /** @type{?proto.visualization.CreateWindow} */ (
+    jspb.Message.getWrapperField(this, proto.visualization.CreateWindow, 15));
+};
+
+
+/** @param {?proto.visualization.CreateWindow|undefined} value */
+proto.visualization.Command3D.prototype.setCreateWindow = function(value) {
+  jspb.Message.setOneofWrapperField(this, 15, proto.visualization.Command3D.oneofGroups_[0], value);
+};
+
+
+proto.visualization.Command3D.prototype.clearCreateWindow = function() {
+  this.setCreateWindow(undefined);
+};
+
+
+/**
+ * Returns whether this field is set.
+ * @return {!boolean}
+ */
+proto.visualization.Command3D.prototype.hasCreateWindow = function() {
+  return jspb.Message.getField(this, 15) != null;
+};
+
+
+/**
+ * optional DeleteWindow delete_window = 16;
+ * @return {?proto.visualization.DeleteWindow}
+ */
+proto.visualization.Command3D.prototype.getDeleteWindow = function() {
+  return /** @type{?proto.visualization.DeleteWindow} */ (
+    jspb.Message.getWrapperField(this, proto.visualization.DeleteWindow, 16));
+};
+
+
+/** @param {?proto.visualization.DeleteWindow|undefined} value */
+proto.visualization.Command3D.prototype.setDeleteWindow = function(value) {
+  jspb.Message.setOneofWrapperField(this, 16, proto.visualization.Command3D.oneofGroups_[0], value);
+};
+
+
+proto.visualization.Command3D.prototype.clearDeleteWindow = function() {
+  this.setDeleteWindow(undefined);
+};
+
+
+/**
+ * Returns whether this field is set.
+ * @return {!boolean}
+ */
+proto.visualization.Command3D.prototype.hasDeleteWindow = function() {
+  return jspb.Message.getField(this, 16) != null;
+};
+
+
 
 /**
  * Generated by JsPbCodeGenerator.
@@ -8195,7 +8688,7 @@ if (goog.DEBUG && !COMPILED) {
  * @private {!Array<number>}
  * @const
  */
-proto.visualization.Scene2DUpdate.repeatedFields_ = [2];
+proto.visualization.Scene2DUpdate.repeatedFields_ = [3];
 
 
 
@@ -8227,6 +8720,7 @@ proto.visualization.Scene2DUpdate.prototype.toObject = function(opt_includeInsta
 proto.visualization.Scene2DUpdate.toObject = function(includeInstance, msg) {
   var f, obj = {
     windowId: jspb.Message.getFieldWithDefault(msg, 1, ""),
+    windowName: jspb.Message.getFieldWithDefault(msg, 2, ""),
     commandsList: jspb.Message.toObjectList(msg.getCommandsList(),
     proto.visualization.Command2D.toObject, includeInstance)
   };
@@ -8270,6 +8764,10 @@ proto.visualization.Scene2DUpdate.deserializeBinaryFromReader = function(msg, re
       msg.setWindowId(value);
       break;
     case 2:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setWindowName(value);
+      break;
+    case 3:
       var value = new proto.visualization.Command2D;
       reader.readMessage(value,proto.visualization.Command2D.deserializeBinaryFromReader);
       msg.addCommands(value);
@@ -8310,10 +8808,17 @@ proto.visualization.Scene2DUpdate.serializeBinaryToWriter = function(message, wr
       f
     );
   }
+  f = message.getWindowName();
+  if (f.length > 0) {
+    writer.writeString(
+      2,
+      f
+    );
+  }
   f = message.getCommandsList();
   if (f.length > 0) {
     writer.writeRepeatedMessage(
-      2,
+      3,
       f,
       proto.visualization.Command2D.serializeBinaryToWriter
     );
@@ -8337,18 +8842,33 @@ proto.visualization.Scene2DUpdate.prototype.setWindowId = function(value) {
 
 
 /**
- * repeated Command2D commands = 2;
+ * optional string window_name = 2;
+ * @return {string}
+ */
+proto.visualization.Scene2DUpdate.prototype.getWindowName = function() {
+  return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 2, ""));
+};
+
+
+/** @param {string} value */
+proto.visualization.Scene2DUpdate.prototype.setWindowName = function(value) {
+  jspb.Message.setProto3StringField(this, 2, value);
+};
+
+
+/**
+ * repeated Command2D commands = 3;
  * @return {!Array<!proto.visualization.Command2D>}
  */
 proto.visualization.Scene2DUpdate.prototype.getCommandsList = function() {
   return /** @type{!Array<!proto.visualization.Command2D>} */ (
-    jspb.Message.getRepeatedWrapperField(this, proto.visualization.Command2D, 2));
+    jspb.Message.getRepeatedWrapperField(this, proto.visualization.Command2D, 3));
 };
 
 
 /** @param {!Array<!proto.visualization.Command2D>} value */
 proto.visualization.Scene2DUpdate.prototype.setCommandsList = function(value) {
-  jspb.Message.setRepeatedWrapperField(this, 2, value);
+  jspb.Message.setRepeatedWrapperField(this, 3, value);
 };
 
 
@@ -8358,7 +8878,7 @@ proto.visualization.Scene2DUpdate.prototype.setCommandsList = function(value) {
  * @return {!proto.visualization.Command2D}
  */
 proto.visualization.Scene2DUpdate.prototype.addCommands = function(opt_value, opt_index) {
-  return jspb.Message.addToRepeatedWrapperField(this, 2, opt_value, proto.visualization.Command2D, opt_index);
+  return jspb.Message.addToRepeatedWrapperField(this, 3, opt_value, proto.visualization.Command2D, opt_index);
 };
 
 
@@ -8390,7 +8910,7 @@ if (goog.DEBUG && !COMPILED) {
  * @private {!Array<number>}
  * @const
  */
-proto.visualization.Scene3DUpdate.repeatedFields_ = [2];
+proto.visualization.Scene3DUpdate.repeatedFields_ = [3];
 
 
 
@@ -8422,6 +8942,7 @@ proto.visualization.Scene3DUpdate.prototype.toObject = function(opt_includeInsta
 proto.visualization.Scene3DUpdate.toObject = function(includeInstance, msg) {
   var f, obj = {
     windowId: jspb.Message.getFieldWithDefault(msg, 1, ""),
+    windowName: jspb.Message.getFieldWithDefault(msg, 2, ""),
     commandsList: jspb.Message.toObjectList(msg.getCommandsList(),
     proto.visualization.Command3D.toObject, includeInstance)
   };
@@ -8465,6 +8986,10 @@ proto.visualization.Scene3DUpdate.deserializeBinaryFromReader = function(msg, re
       msg.setWindowId(value);
       break;
     case 2:
+      var value = /** @type {string} */ (reader.readString());
+      msg.setWindowName(value);
+      break;
+    case 3:
       var value = new proto.visualization.Command3D;
       reader.readMessage(value,proto.visualization.Command3D.deserializeBinaryFromReader);
       msg.addCommands(value);
@@ -8505,10 +9030,17 @@ proto.visualization.Scene3DUpdate.serializeBinaryToWriter = function(message, wr
       f
     );
   }
+  f = message.getWindowName();
+  if (f.length > 0) {
+    writer.writeString(
+      2,
+      f
+    );
+  }
   f = message.getCommandsList();
   if (f.length > 0) {
     writer.writeRepeatedMessage(
-      2,
+      3,
       f,
       proto.visualization.Command3D.serializeBinaryToWriter
     );
@@ -8532,18 +9064,33 @@ proto.visualization.Scene3DUpdate.prototype.setWindowId = function(value) {
 
 
 /**
- * repeated Command3D commands = 2;
+ * optional string window_name = 2;
+ * @return {string}
+ */
+proto.visualization.Scene3DUpdate.prototype.getWindowName = function() {
+  return /** @type {string} */ (jspb.Message.getFieldWithDefault(this, 2, ""));
+};
+
+
+/** @param {string} value */
+proto.visualization.Scene3DUpdate.prototype.setWindowName = function(value) {
+  jspb.Message.setProto3StringField(this, 2, value);
+};
+
+
+/**
+ * repeated Command3D commands = 3;
  * @return {!Array<!proto.visualization.Command3D>}
  */
 proto.visualization.Scene3DUpdate.prototype.getCommandsList = function() {
   return /** @type{!Array<!proto.visualization.Command3D>} */ (
-    jspb.Message.getRepeatedWrapperField(this, proto.visualization.Command3D, 2));
+    jspb.Message.getRepeatedWrapperField(this, proto.visualization.Command3D, 3));
 };
 
 
 /** @param {!Array<!proto.visualization.Command3D>} value */
 proto.visualization.Scene3DUpdate.prototype.setCommandsList = function(value) {
-  jspb.Message.setRepeatedWrapperField(this, 2, value);
+  jspb.Message.setRepeatedWrapperField(this, 3, value);
 };
 
 
@@ -8553,7 +9100,7 @@ proto.visualization.Scene3DUpdate.prototype.setCommandsList = function(value) {
  * @return {!proto.visualization.Command3D}
  */
 proto.visualization.Scene3DUpdate.prototype.addCommands = function(opt_value, opt_index) {
-  return jspb.Message.addToRepeatedWrapperField(this, 2, opt_value, proto.visualization.Command3D, opt_index);
+  return jspb.Message.addToRepeatedWrapperField(this, 3, opt_value, proto.visualization.Command3D, opt_index);
 };
 
 

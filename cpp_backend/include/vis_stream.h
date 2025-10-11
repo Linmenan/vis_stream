@@ -32,49 +32,43 @@ class VisualizationServer {
   void run();
   void stop();
   std::vector<std::string> get_connected_windows();
-
-  // --- 可视化对象管理 API ---
-  void add(std::shared_ptr<Vis::Observable> obj, const std::string& window_name,
-           const visualization::Material& material, bool is_3d);
-  void add(std::shared_ptr<Vis::Observable> obj, const size_t& window_idx,
-           const visualization::Material& material, bool is_3d);
-  void add(const Vis::Observable& obj, const std::string& window_name,
-           const visualization::Material& material, bool is_3d);
-  void add(const Vis::Observable& obj, const size_t& window_idx,
-           const visualization::Material& material, bool is_3d);
-
-  void clear_static(const std::string& window_name);
-  void clear_static(const size_t& window_idx);
-  void clear_dynamic(const std::string& window_name);
-  void clear_dynamic(const size_t& window_idx);
-  void clear(const std::string& window_name);
-  void clear(const size_t& window_idx);
-
-  void drawnow(const std::string& name, const bool& is_3d);
-  void drawnow(const size_t& window_idx, const bool& is_3d);
+  bool is_connected() const;
   void set_auto_update_policy(bool enabled, int threshold = 50,
                               int interval_ms = 33);
+  // --- 可视化对象管理 API ---
+  void add(std::shared_ptr<Vis::Observable> obj, const std::string& name,
+           const visualization::Material& material, bool is_3d);
+  void add(const Vis::Observable& obj, const std::string& name,
+           const visualization::Material& material, bool is_3d);
+
+  void clear_static(const std::string& name, bool is_3d);
+  void clear_dynamic(const std::string& name, bool is_3d);
+  void clear(const std::string& name, bool is_3d);
+
+  void drawnow(const std::string& name, const bool& is_3d);
+  // ...
 
   // --- 窗口控制 API ---
-  void create_window(const std::string& name = "", const bool& is_3d = false);
-  bool remove_window(const std::string& name = "", const bool& is_3d = false);
+  // create_window 返回 bool，且 name 成为必需参数
+  bool create_window(const std::string& name, const bool& is_3d = false);
 
-  void set_title(const std::string& old_name, const std::string& name,
-                 bool is_3d);
-  void set_title(const size_t& window_idx, const std::string& name, bool is_3d);
+  // remove_window 参数改为 name
+  bool remove_window(const std::string& name, const bool& is_3d = false);
+
+  // rename_window 现在是重命名操作，需要返回 bool
+  // 它需要知道旧名称来定位窗口，所以签名调整为：
+  bool rename_window(const std::string& old_name, const std::string& new_name,
+                     bool is_3d);
 
   void set_grid_visible(const std::string& name, bool visible, bool is_3d);
-  void set_grid_visible(const size_t& window_idx, bool visible, bool is_3d);
-
   void set_axes_visible(const std::string& name, bool visible, bool is_3d);
-  void set_axes_visible(const size_t& window_idx, bool visible, bool is_3d);
-
   void set_legend_visible(const std::string& name, bool visible, bool is_3d);
-  void set_legend_visible(const size_t& window_idx, bool visible, bool is_3d);
 
-  std::vector<std::string> get_windows_name(const bool& is_3d);
-  size_t getTotalWindows() const;
-  size_t getTotalObservables() const;
+  // 不再需要返回 map，可以提供一个获取所有窗口名称的接口
+  std::vector<std::string> get_window_names(const bool& is_3d);
+
+  size_t get_windows_number() const;
+  size_t get_observables_number() const;
 
  private:
   VisualizationServer();

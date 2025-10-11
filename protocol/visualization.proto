@@ -173,6 +173,11 @@ message Set2DAxisProperties {
   float y_max = 6;
   bool auto_scale = 7; // 是否自动根据数据调整范围
 }
+message CreateWindow {
+  string window_id = 1;
+  string window_name = 2;
+}
+message DeleteWindow { string window_id = 1; }
 
 message Command2D {
   oneof command_type {
@@ -185,6 +190,8 @@ message Command2D {
     SetTitle set_title = 12;
     SetLegend set_legend = 13;
     Set2DAxisProperties set_axis_properties = 14;
+    CreateWindow create_window = 15;
+    DeleteWindow delete_window = 16;
   }
 }
 message Command3D {
@@ -197,16 +204,20 @@ message Command3D {
     SetAxesVisible set_axes_visible = 11;
     SetTitle set_title = 12;
     SetLegend set_legend = 13;
+    CreateWindow create_window = 15;
+    DeleteWindow delete_window = 16;
   }
 }
 message Scene2DUpdate {
   string window_id = 1;
-  repeated Command2D commands = 2;
+  string window_name = 2;
+  repeated Command2D commands = 3;
 }
 
 message Scene3DUpdate {
   string window_id = 1;
-  repeated Command3D commands = 2;
+  string window_name = 2;
+  repeated Command3D commands = 3;
 }
 
 // --- 顶级包装消息 ---
