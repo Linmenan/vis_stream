@@ -36,21 +36,21 @@ class AppManager {
         const windowName = sceneUpdate.getWindowName();
         const commands = sceneUpdate.getCommandsList();
 
-        // console.log(`🔄 处理更新 - 窗口: ${windowId}, 类型: ${updateType}, 命令数量: ${commands.length}`);
+        console.log(`🔄 处理更新 - 窗口: ${windowId}, 类型: ${updateType}, 命令数量: ${commands.length}`);
 
         // 首先检查命令列表中是否包含删除窗口命令
         for (let cmd of commands) {
             const commandType = cmd.getCommandTypeCase();
-            // console.log(`  检查命令: 类型=${commandType}, 名称=${this.getCommandTypeName(commandType)}`);
+            console.log(`  检查命令: 类型=${commandType}, 名称=${this.getCommandTypeName(commandType)}`);
 
             if (updateType === '2D' &&
                 commandType === proto.visualization.Command2D.CommandTypeCase.DELETE_WINDOW) {
-                // console.log("🗑️ 收到2D窗口删除命令，窗口ID:", windowId);
+                console.log("🗑️ 收到2D窗口删除命令，窗口ID:", windowId);
                 this.removePlotter(windowId);
                 return; // 直接返回，不处理其他命令
             } else if (updateType === '3D' &&
                 commandType === proto.visualization.Command3D.CommandTypeCase.DELETE_WINDOW) {
-                // console.log("🗑️ 收到3D窗口删除命令，窗口ID:", windowId);
+                console.log("🗑️ 收到3D窗口删除命令，窗口ID:", windowId);
                 this.removePlotter(windowId);
                 return; // 直接返回，不处理其他命令
             }
@@ -60,7 +60,7 @@ class AppManager {
             const commandType = cmd.getCommandTypeCase();
             if ((updateType === '2D' && commandType === proto.visualization.Command2D.CommandTypeCase.CREATE_WINDOW) ||
                 (updateType === '3D' && commandType === proto.visualization.Command3D.CommandTypeCase.CREATE_WINDOW)) {
-                // console.log("🪟 收到创建窗口命令，窗口ID:", windowId);
+                console.log("🪟 收到创建窗口命令，窗口ID:", windowId);
                 // 如果窗口已存在，警告并忽略
                 if (this.plotters.has(windowId)) {
                     console.warn("🔄 窗口已存在！！！", windowId);
@@ -1744,6 +1744,19 @@ class ObjectFactory {
     // --- 3D Methods ---
     create3D(cmd) {
         const data = cmd.getGeometryDataCase();
+        console.log('3D几何数据类型检查：', {
+            case: data,
+            hasPoint2D: cmd.hasPoint2d(),
+            hasPose2D: cmd.hasPose2d(),
+            hasCircle: cmd.hasCircle(),
+            hasBox2D: cmd.hasBox2d(),
+            hasLine2D: cmd.hasLine2d(),
+            hasPolygon: cmd.hasPolygon(),
+            hasPoint3D: cmd.hasPose3d(),
+            hasPose3D: cmd.hasPose3d(),
+            hasBall: cmd.hasBall(),
+            hasBox3D: cmd.hasBox3d()
+        });
         const mat = cmd.getMaterial();
         let obj = null;
         switch (data) {
@@ -1786,6 +1799,171 @@ class ObjectFactory {
                 this.updatePose(obj, geom.getCenter());
                 break;
             }
+            // 添加对2D图元的特殊处理
+            case proto.visualization.Add3DObject.GeometryDataCase.POINT_2D: {
+                const geom = cmd.getPoint2d();
+                const geometry = new THREE.BufferGeometry();
+                const pos = geom.getPosition();
+                // 在Z=0平面显示，但设置不同的渲染属性
+                geometry.setAttribute('position', new THREE.BufferAttribute(
+                    new Float32Array([pos.getX(), pos.getY(), 0]), 3));
+
+                const material = this.createBasicPointsMaterial(mat);
+                material.depthTest = false; // 禁用深度测试，确保显示在最前面
+                material.sizeAttenuation = false; // 固定大小
+
+                obj = new THREE.Points(geometry, material);
+                obj.renderOrder = 999; // 设置高渲染顺序
+                // console.log(`📍 创建3D窗口中的2D点: (${pos.getX()}, ${pos.getY()}, 0)`);
+                break;
+            }
+            case proto.visualization.Add3DObject.GeometryDataCase.LINE_2D: {
+                const geom = cmd.getLine2d();
+                const points = geom.getPointsList().map(p =>
+                    new THREE.Vector3(p.getPosition().getX(), p.getPosition().getY(), 0));
+
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                const material = this.createLineMaterial(mat);
+                material.depthTest = false; // 禁用深度测试
+                material.transparent = true;
+                material.opacity = 0.8;
+
+                obj = new THREE.Line(geometry, material);
+                obj.renderOrder = 998; // 设置高渲染顺序
+
+                // console.log(`📏 创建3D窗口中的2D线，点数: ${points.length}`);
+                break;
+            }
+            case proto.visualization.Add3DObject.GeometryDataCase.POSE_2D: {
+                const geom = cmd.getPose2d();
+                const pos = geom.getPosition();
+                const angle = geom.getTheta();
+
+                // 创建2D姿态（箭头+点）
+                const group = new THREE.Group();
+
+                // 箭头表示方向
+                const arrowColor = new THREE.Color(
+                    mat.getColor().getR(),
+                    mat.getColor().getG(),
+                    mat.getColor().getB()
+                );
+                const arrowDirection = new THREE.Vector3(Math.cos(angle), Math.sin(angle), 0);
+                const arrowHelper = new THREE.ArrowHelper(
+                    arrowDirection,
+                    new THREE.Vector3(0, 0, 0),
+                    0.5,
+                    arrowColor.getHex(),
+                    0.1,
+                    0.05
+                );
+
+                // 点表示位置
+                const pointGeometry = new THREE.BufferGeometry();
+                pointGeometry.setAttribute('position', new THREE.BufferAttribute(
+                    new Float32Array([0, 0, 0]), 3));
+                const pointMaterial = this.createBasicPointsMaterial(mat);
+                pointMaterial.depthTest = false;
+                const point = new THREE.Points(pointGeometry, pointMaterial);
+
+                group.add(arrowHelper);
+                group.add(point);
+                group.position.set(pos.getX(), pos.getY(), 0);
+
+                obj = group;
+                obj.renderOrder = 997;
+                // console.log(`🎯 创建2D姿态: 位置(${pos.getX()}, ${pos.getY()}), 角度: ${angle}`);
+                break;
+            }
+            case proto.visualization.Add3DObject.GeometryDataCase.CIRCLE: {
+                const geom = cmd.getCircle();
+                const center = geom.getCenter();
+                const radius = geom.getRadius();
+
+                // 创建圆形几何体
+                const curve = new THREE.EllipseCurve(
+                    center.getX(), center.getY(),  // 中心X, Y
+                    radius, radius,                // x半径, y半径
+                    0, 2 * Math.PI,                // 起始角, 结束角
+                    false, 0                       // 顺时针, 旋转角
+                );
+
+                const points = curve.getPoints(50); // 50个点使圆形光滑
+                const vertices = points.map(p => new THREE.Vector3(p.x, p.y, 0));
+                const geometry = new THREE.BufferGeometry().setFromPoints(vertices);
+
+                const material = this.createLineMaterial(mat);
+                material.depthTest = false;
+                material.transparent = true;
+                material.opacity = 0.8;
+
+                obj = new THREE.Line(geometry, material);
+                obj.renderOrder = 996;
+                // console.log(`⭕ 创建圆形: 中心(${center.getX()}, ${center.getY()}), 半径: ${radius}`);
+                break;
+            }
+            case proto.visualization.Add3DObject.GeometryDataCase.BOX_2D: {
+                const geom = cmd.getBox2d();
+                const center = geom.getCenter().getPosition();
+                const theta = geom.getCenter().getTheta();
+                const w = geom.getWidth();
+                const lf = geom.getLengthFront();
+                const lr = geom.getLengthRear();
+
+                // 计算矩形的四个角点（在局部坐标系）
+                const localCorners = [
+                    new THREE.Vector2(-lr, w / 2),
+                    new THREE.Vector2(lf, w / 2),
+                    new THREE.Vector2(lf, -w / 2),
+                    new THREE.Vector2(-lr, -w / 2)
+                ];
+
+                // 旋转并平移角点
+                const worldCorners = localCorners.map(corner => {
+                    const rotated = new THREE.Vector2(
+                        corner.x * Math.cos(theta) - corner.y * Math.sin(theta),
+                        corner.x * Math.sin(theta) + corner.y * Math.cos(theta)
+                    );
+                    return new THREE.Vector3(
+                        rotated.x + center.getX(),
+                        rotated.y + center.getY(),
+                        0
+                    );
+                });
+
+                // 闭合矩形（添加第一个点到最后）
+                const closedCorners = [...worldCorners, worldCorners[0]];
+                const geometry = new THREE.BufferGeometry().setFromPoints(closedCorners);
+
+                const material = this.createLineMaterial(mat);
+                material.depthTest = false;
+                material.transparent = true;
+                material.opacity = 0.8;
+
+                obj = new THREE.Line(geometry, material);
+                obj.renderOrder = 995;
+                // console.log(`📦 创建2D矩形: 中心(${center.getX()}, ${center.getY()}), 角度: ${theta}, 尺寸: ${w}x${lf + lr}`);
+                break;
+            }
+            case proto.visualization.Add3DObject.GeometryDataCase.POLYGON: {
+                const geom = cmd.getPolygon();
+                const vertices = geom.getVerticesList().map(p =>
+                    new THREE.Vector3(p.getPosition().getX(), p.getPosition().getY(), 0));
+
+                const geometry = new THREE.BufferGeometry().setFromPoints(vertices);
+                const material = this.createLineMaterial(mat);
+                material.depthTest = false;
+                material.transparent = true;
+                material.opacity = 0.8;
+
+                obj = new THREE.LineLoop(geometry, material);
+                obj.renderOrder = 994;
+                // console.log(`🔺 创建多边形，顶点数: ${vertices.length}`);
+                break;
+            }
+            default: {
+                console.warn("❓ 未知的3D几何类型:", data);
+            }
         }
         return obj;
     }
@@ -1810,6 +1988,128 @@ class ObjectFactory {
             }
             case proto.visualization.Update3DObjectGeometry.GeometryDataCase.BOX_3D: {
                 this.updatePose(obj, cmd.getBox3d().getCenter());
+                break;
+            }
+            // 添加2D图元更新
+            case proto.visualization.Update3DObjectGeometry.GeometryDataCase.POINT_2D: {
+                const pos = cmd.getPoint2d().getPosition();
+                if (obj.geometry && obj.geometry.attributes.position) {
+                    obj.geometry.attributes.position.setXYZ(0, pos.getX(), pos.getY(), 0);
+                    obj.geometry.attributes.position.needsUpdate = true;
+                    // console.log(`📍 更新2D点位置: (${pos.getX()}, ${pos.getY()})`);
+                }
+                break;
+            }
+            case proto.visualization.Update3DObjectGeometry.GeometryDataCase.LINE_2D: {
+                const geom = cmd.getLine2d();
+                const points = geom.getPointsList().map(p =>
+                    new THREE.Vector3(p.getPosition().getX(), p.getPosition().getY(), 0));
+
+                // 创建新的几何体
+                const newGeometry = new THREE.BufferGeometry().setFromPoints(points);
+
+                // 保持原有材质
+                const oldMaterial = obj.material;
+
+                // 替换几何体
+                obj.geometry.dispose();
+                obj.geometry = newGeometry;
+
+                // console.log(`📏 更新2D线，新点数: ${points.length}`);
+                break;
+            }
+            case proto.visualization.Update3DObjectGeometry.GeometryDataCase.POSE_2D: {
+                const geom = cmd.getPose2d();
+                const pos = geom.getPosition();
+                const angle = geom.getTheta();
+
+                if (obj.isGroup) {
+                    // 更新组的位置
+                    obj.position.set(pos.getX(), pos.getY(), 0);
+
+                    // 更新箭头的方向
+                    const arrowHelper = obj.children.find(child => child.isArrowHelper);
+                    if (arrowHelper) {
+                        const newDirection = new THREE.Vector3(Math.cos(angle), Math.sin(angle), 0);
+                        arrowHelper.setDirection(newDirection);
+                    }
+                }
+                // console.log(`🎯 更新2D姿态: 位置(${pos.getX()}, ${pos.getY()}), 角度: ${angle}`);
+                break;
+            }
+            case proto.visualization.Update3DObjectGeometry.GeometryDataCase.CIRCLE: {
+                const geom = cmd.getCircle();
+                const center = geom.getCenter();
+                const radius = geom.getRadius();
+
+                // 重新创建圆形几何体
+                const curve = new THREE.EllipseCurve(
+                    center.getX(), center.getY(),
+                    radius, radius,
+                    0, 2 * Math.PI,
+                    false, 0
+                );
+
+                const points = curve.getPoints(50);
+                const vertices = points.map(p => new THREE.Vector3(p.x, p.y, 0));
+                const newGeometry = new THREE.BufferGeometry().setFromPoints(vertices);
+
+                // 保持原有材质
+                const oldMaterial = obj.material;
+                obj.geometry.dispose();
+                obj.geometry = newGeometry;
+
+                // console.log(`⭕ 更新圆形: 中心(${center.getX()}, ${center.getY()}), 半径: ${radius}`);
+                break;
+            }
+            case proto.visualization.Update3DObjectGeometry.GeometryDataCase.BOX_2D: {
+                const geom = cmd.getBox2d();
+                const center = geom.getCenter().getPosition();
+                const theta = geom.getCenter().getTheta();
+                const w = geom.getWidth();
+                const lf = geom.getLengthFront();
+                const lr = geom.getLengthRear();
+
+                // 重新计算矩形角点
+                const localCorners = [
+                    new THREE.Vector2(-lr, w / 2),
+                    new THREE.Vector2(lf, w / 2),
+                    new THREE.Vector2(lf, -w / 2),
+                    new THREE.Vector2(-lr, -w / 2)
+                ];
+
+                const worldCorners = localCorners.map(corner => {
+                    const rotated = new THREE.Vector2(
+                        corner.x * Math.cos(theta) - corner.y * Math.sin(theta),
+                        corner.x * Math.sin(theta) + corner.y * Math.cos(theta)
+                    );
+                    return new THREE.Vector3(
+                        rotated.x + center.getX(),
+                        rotated.y + center.getY(),
+                        0
+                    );
+                });
+
+                const closedCorners = [...worldCorners, worldCorners[0]];
+                const newGeometry = new THREE.BufferGeometry().setFromPoints(closedCorners);
+
+                // 保持原有材质
+                const oldMaterial = obj.material;
+                obj.geometry.dispose();
+                obj.geometry = newGeometry;
+
+                // console.log(`📦 更新2D矩形: 中心(${center.getX()}, ${center.getY()}), 角度: ${theta}`);
+                break;
+            }
+            case proto.visualization.Update3DObjectGeometry.GeometryDataCase.POLYGON: {
+                const geom = cmd.getPolygon();
+                const vertices = geom.getVerticesList().map(p =>
+                    new THREE.Vector3(p.getPosition().getX(), p.getPosition().getY(), 0));
+
+                const newGeometry = new THREE.BufferGeometry().setFromPoints(vertices);
+                obj.geometry.dispose();
+                obj.geometry = newGeometry;
+                // console.log(`🔺 更新多边形，新顶点数: ${vertices.length}`);
                 break;
             }
         }
@@ -1859,24 +2159,46 @@ class ObjectFactory {
             }
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.POLYGON: {
                 const geom = cmd.getPolygon();
-                const vertices = geom.getVerticesList().map(p => p.getPosition());
-                const shape = new THREE.Shape(vertices.map(v => new THREE.Vector2(v.getX(), v.getY())));
-                obj.geometry.dispose();
-                obj.geometry = mat.type === 'MeshBasicMaterial' ? new THREE.ShapeGeometry(shape) : new THREE.BufferGeometry().setFromPoints(shape.getPoints());
+                const vertices = geom.getVerticesList().map(p => new THREE.Vector2(p.getPosition().getX(), p.getPosition().getY()));
+
+                if (obj.isMesh) {
+                    // 填充的多边形 - 使用 ShapeGeometry
+                    const shape = new THREE.Shape(vertices);
+                    obj.geometry.dispose();
+                    obj.geometry = new THREE.ShapeGeometry(shape);
+                } else {
+                    // 线框多边形 - 使用闭合的线
+                    const points = vertices.map(v => new THREE.Vector3(v.x, v.y, 0));
+                    // 闭合多边形
+                    if (points.length > 0) {
+                        points.push(points[0].clone());
+                    }
+                    obj.geometry.dispose();
+                    obj.geometry = new THREE.BufferGeometry().setFromPoints(points);
+                }
                 break;
             }
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.CIRCLE: {
                 const geom = cmd.getCircle();
                 const center = geom.getCenter();
                 const radius = geom.getRadius();
-                obj.geometry.dispose();
-                const curve = new THREE.EllipseCurve(center.getX(), center.getY(), radius, radius, 0, 2 * Math.PI, false, 0);
-                const points = curve.getPoints(50);
-                obj.geometry = new THREE.BufferGeometry().setFromPoints(points);
-                if (mat.type === 'MeshBasicMaterial') {
-                    const shape = new THREE.Shape(points);
+
+                if (obj.isMesh) {
+                    // 填充的圆形 - 使用 CircleGeometry
                     obj.geometry.dispose();
-                    obj.geometry = new THREE.ShapeGeometry(shape);
+                    obj.geometry = new THREE.CircleGeometry(radius, 32);
+                    obj.position.set(center.getX(), center.getY(), 0);
+                } else {
+                    // 线框圆形 - 使用椭圆曲线
+                    const curve = new THREE.EllipseCurve(
+                        center.getX(), center.getY(),
+                        radius, radius,
+                        0, 2 * Math.PI,
+                        false, 0
+                    );
+                    const points = curve.getPoints(50);
+                    obj.geometry.dispose();
+                    obj.geometry = new THREE.BufferGeometry().setFromPoints(points);
                 }
                 break;
             }
@@ -1887,12 +2209,51 @@ class ObjectFactory {
                 const w = geom.getWidth();
                 const lf = geom.getLengthFront();
                 const lr = geom.getLengthRear();
-                const corners = [
-                    new THREE.Vector2(-lr, w / 2), new THREE.Vector2(lf, w / 2),
-                    new THREE.Vector2(lf, -w / 2), new THREE.Vector2(-lr, -w / 2)
+
+                // 计算矩形的四个角点
+                const localCorners = [
+                    new THREE.Vector2(-lr, w / 2),
+                    new THREE.Vector2(lf, w / 2),
+                    new THREE.Vector2(lf, -w / 2),
+                    new THREE.Vector2(-lr, -w / 2)
                 ];
-                corners.forEach(c => c.rotateAround(new THREE.Vector2(0, 0), theta).add(new THREE.Vector2(center.getX(), center.getY())));
-                const points = corners.map(c => new THREE.Vector3(c.x, c.y, 0));
+
+                // 旋转并平移角点
+                const worldCorners = localCorners.map(corner => {
+                    const rotated = new THREE.Vector2(
+                        corner.x * Math.cos(theta) - corner.y * Math.sin(theta),
+                        corner.x * Math.sin(theta) + corner.y * Math.cos(theta)
+                    );
+                    return new THREE.Vector3(
+                        rotated.x + center.getX(),
+                        rotated.y + center.getY(),
+                        0
+                    );
+                });
+
+                if (obj.isMesh) {
+                    // 填充的矩形 - 使用 ShapeGeometry
+                    const shape = new THREE.Shape(worldCorners.map(v => new THREE.Vector2(v.x, v.y)));
+                    obj.geometry.dispose();
+                    obj.geometry = new THREE.ShapeGeometry(shape);
+                } else {
+                    // 线框矩形 - 使用闭合的线
+                    const closedCorners = [...worldCorners, worldCorners[0]];
+                    obj.geometry.dispose();
+                    obj.geometry = new THREE.BufferGeometry().setFromPoints(closedCorners);
+                }
+                break;
+            }
+            case proto.visualization.Update2DObjectGeometry.GeometryDataCase.TRAJECTORY_2D: {
+                const geom = cmd.getTrajectory2d();
+                // 轨迹由多个 Box2D 组成，这里简化处理为线序列
+                const points = geom.getPosesList().map(pose =>
+                    new THREE.Vector3(
+                        pose.getCenter().getPosition().getX(),
+                        pose.getCenter().getPosition().getY(),
+                        0
+                    )
+                );
                 obj.geometry.dispose();
                 obj.geometry = new THREE.BufferGeometry().setFromPoints(points);
                 break;
@@ -1949,18 +2310,79 @@ class ObjectFactory {
                 obj = new THREE.Line(geometry, material);
                 break;
             }
-            default: { // Polygon, Circle, Box2D fall here
+            case proto.visualization.Add2DObject.GeometryDataCase.POLYGON: {
+                // 创建多边形 - 使用 ShapeGeometry 或 BufferGeometry
                 const geometry = new THREE.BufferGeometry();
                 const color = mat.getColor();
-                const materialArgs = { color: new THREE.Color(color.getR(), color.getG(), color.getB()), side: THREE.DoubleSide };
+                const materialArgs = {
+                    color: new THREE.Color(color.getR(), color.getG(), color.getB()),
+                    side: THREE.DoubleSide
+                };
+
                 if (mat.getFilled()) {
                     const fillColor = mat.getFillColor();
                     materialArgs.opacity = fillColor.getA();
                     materialArgs.transparent = fillColor.getA() < 1.0;
+                    obj = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial(materialArgs));
+                } else {
+                    obj = new THREE.LineLoop(geometry, new THREE.LineBasicMaterial(materialArgs));
                 }
-                const material = mat.getFilled() ? new THREE.MeshBasicMaterial(materialArgs) : new THREE.LineBasicMaterial(materialArgs);
-                obj = mat.getFilled() ? new THREE.Mesh(geometry, material) : new THREE.LineLoop(geometry, material);
                 break;
+            }
+            case proto.visualization.Add2DObject.GeometryDataCase.CIRCLE: {
+                // 创建圆形 - 使用圆形几何体
+                const geometry = new THREE.BufferGeometry();
+                const color = mat.getColor();
+                const materialArgs = {
+                    color: new THREE.Color(color.getR(), color.getG(), color.getB()),
+                    side: THREE.DoubleSide
+                };
+
+                if (mat.getFilled()) {
+                    const fillColor = mat.getFillColor();
+                    materialArgs.opacity = fillColor.getA();
+                    materialArgs.transparent = fillColor.getA() < 1.0;
+                    obj = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial(materialArgs));
+                } else {
+                    obj = new THREE.LineLoop(geometry, new THREE.LineBasicMaterial(materialArgs));
+                }
+                break;
+            }
+            case proto.visualization.Add2DObject.GeometryDataCase.BOX_2D: {
+                // 创建矩形 - 使用矩形几何体
+                const geometry = new THREE.BufferGeometry();
+                const color = mat.getColor();
+                const materialArgs = {
+                    color: new THREE.Color(color.getR(), color.getG(), color.getB()),
+                    side: THREE.DoubleSide
+                };
+
+                if (mat.getFilled()) {
+                    const fillColor = mat.getFillColor();
+                    materialArgs.opacity = fillColor.getA();
+                    materialArgs.transparent = fillColor.getA() < 1.0;
+                    obj = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial(materialArgs));
+                } else {
+                    obj = new THREE.LineLoop(geometry, new THREE.LineBasicMaterial(materialArgs));
+                }
+                break;
+            }
+            case proto.visualization.Add2DObject.GeometryDataCase.TRAJECTORY_2D: {
+                // 轨迹 - 使用线序列
+                const geometry = new THREE.BufferGeometry();
+                const material = this.createLineMaterial(mat);
+                obj = new THREE.Line(geometry, material);
+                break;
+            }
+            default: {
+                console.warn("❓ 未知的2D几何类型:", data);
+                const geometry = new THREE.BufferGeometry();
+                const color = mat.getColor();
+                const material = new THREE.PointsMaterial({
+                    color: new THREE.Color(color.getR(), color.getG(), color.getB()),
+                    size: mat.getPointSize() || 5
+                });
+                obj = new THREE.Points(geometry, material);
             }
         }
         return obj;
@@ -1981,7 +2403,21 @@ class ObjectFactory {
         }
         return new THREE.LineBasicMaterial(materialArgs);
     }
-    packageAsUpdateCmd(addCmd) { const updateCmd = new proto.visualization.Update2DObjectGeometry(); const data = addCmd.getGeometryDataCase(); updateCmd.setId(addCmd.getId()); if (data === proto.visualization.Add2DObject.GeometryDataCase.POINT_2D) updateCmd.setPoint2d(addCmd.getPoint2d()); else if (data === proto.visualization.Add2DObject.GeometryDataCase.POSE_2D) updateCmd.setPose2d(addCmd.getPose2d()); else if (data === proto.visualization.Add2DObject.GeometryDataCase.LINE_2D) updateCmd.setLine2d(addCmd.getLine2d()); else if (data === proto.visualization.Add2DObject.GeometryDataCase.POLYGON) updateCmd.setPolygon(addCmd.getPolygon()); else if (data === proto.visualization.Add2DObject.GeometryDataCase.CIRCLE) updateCmd.setCircle(addCmd.getCircle()); else if (data === proto.visualization.Add2DObject.GeometryDataCase.BOX_2D) updateCmd.setBox2d(addCmd.getBox2d()); return updateCmd; }
+    packageAsUpdateCmd(addCmd) {
+        const updateCmd = new proto.visualization.Update2DObjectGeometry();
+        const data = addCmd.getGeometryDataCase();
+        updateCmd.setId(addCmd.getId());
+        if (data === proto.visualization.Add2DObject.GeometryDataCase.POINT_2D) { updateCmd.setPoint2d(addCmd.getPoint2d()); }
+        else if (data === proto.visualization.Add2DObject.GeometryDataCase.POSE_2D) { updateCmd.setPose2d(addCmd.getPose2d()); }
+        else if (data === proto.visualization.Add2DObject.GeometryDataCase.LINE_2D) { updateCmd.setLine2d(addCmd.getLine2d()); }
+        else if (data === proto.visualization.Add2DObject.GeometryDataCase.POLYGON) { updateCmd.setPolygon(addCmd.getPolygon()); }
+        else if (data === proto.visualization.Add2DObject.GeometryDataCase.CIRCLE) { updateCmd.setCircle(addCmd.getCircle()); }
+        else if (data === proto.visualization.Add2DObject.GeometryDataCase.BOX_2D) { updateCmd.setBox2d(addCmd.getBox2d()); }
+        else if (data === proto.visualization.Add2DObject.GeometryDataCase.TRAJECTORY_2D) {
+            updateCmd.setTrajectory2d(addCmd.getTrajectory2d());
+        }
+        return updateCmd;
+    }
 
     updatePose(obj, poseProto) {
         const pos = poseProto.getPosition().getPosition();

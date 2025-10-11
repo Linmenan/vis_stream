@@ -118,11 +118,11 @@ class ComplexAnimationsDemo {
   std::shared_ptr<Vis::Ball> orbiting_ball;
   std::shared_ptr<Vis::Ball> orbiting_ball2;
 
-  // 3D窗口中的2D图元
+  // 3D窗口中的2D图元 - 使用正确的几何类型
   std::shared_ptr<Vis::Point2D> point_3d_window;
-  std::shared_ptr<Vis::Line2D> circle_3d_window;
-  std::shared_ptr<Vis::Line2D> square_3d_window;
-  std::shared_ptr<Vis::Line2D> triangle_3d_window;
+  std::shared_ptr<Vis::Circle> circle_3d_window;     // 改为Circle类型
+  std::shared_ptr<Vis::Box2D> square_3d_window;      // 改为Box2D类型
+  std::shared_ptr<Vis::Polygon> triangle_3d_window;  // 改为Polygon类型
 
  public:
   ComplexAnimationsDemo(VisualizationServer& srv) : server(srv) {}
@@ -174,7 +174,7 @@ class ComplexAnimationsDemo {
     // 3D窗口中的对象
     setup_3d_window_objects();
 
-    sleep_ms(1000);
+    sleep_ms(5000);
   }
 
   void setup_2d_window_objects() {
@@ -188,7 +188,7 @@ class ComplexAnimationsDemo {
       points_2d.push_back(point);
     }
 
-    // 创建标准波形线条
+    // 创建标准波形线条 - Line2D是正确的，因为它包含点序列
     wave_line = Vis::Line2D::create();
     server.add(wave_line, window_2d_name,
                create_color_material(1.0f, 0.0f, 0.0f, "标准波形"), false);
@@ -198,7 +198,7 @@ class ComplexAnimationsDemo {
     server.add(smooth_wave_line, window_2d_name,
                create_color_material(0.0f, 0.8f, 0.0f, "光滑波形"), false);
 
-    // 创建螺旋线
+    // 创建螺旋线 - Line2D是正确的
     spiral_line = Vis::Line2D::create();
     server.add(spiral_line, window_2d_name,
                create_color_material(0.0f, 0.5f, 1.0f, "螺旋线"), false);
@@ -220,30 +220,39 @@ class ComplexAnimationsDemo {
     server.add(orbiting_ball2, window_3d_name,
                create_color_material(1.0f, 0.0f, 1.0f, "轨道球2"), true);
 
-    // 在3D窗口中添加2D图元
+    // 在3D窗口中添加2D图元 - 使用正确的几何类型
     setup_2d_primitives_in_3d_window();
   }
 
   void setup_2d_primitives_in_3d_window() {
     std::cout << "在3D窗口中添加2D图元..." << std::endl;
 
-    // 在3D窗口中创建一个移动的点
+    // 在3D窗口中创建一个移动的点 - Point2D是正确的
     point_3d_window = Vis::Point2D::create({0.0f, 0.0f});
     server.add(point_3d_window, window_3d_name,
                create_color_material(1.0f, 1.0f, 0.0f, "3D窗口中的点"), true);
 
-    // 在3D窗口中创建一个圆形
-    circle_3d_window = Vis::Line2D::create();
+    // 在3D窗口中创建一个圆形 - 使用Circle类型（圆心+半径）
+    circle_3d_window = Vis::Circle::create({0.0f, 0.0f}, 1.5f);
     server.add(circle_3d_window, window_3d_name,
                create_color_material(0.0f, 1.0f, 1.0f, "圆形"), true);
 
-    // 在3D窗口中创建一个正方形
-    square_3d_window = Vis::Line2D::create();
+    // 在3D窗口中创建一个正方形 - 使用Box2D类型（中心+角度+尺寸）
+    // 先创建Pose2D对象，然后设置位置和角度
+    auto square_pose = Vis::Pose2D::create({0.0f, 0.0f});
+    square_pose->set_angle(0.0f);
+    square_3d_window =
+        Vis::Box2D::create(*square_pose, 2.4f, 1.2f, 1.2f);  // 宽度，前长，后长
     server.add(square_3d_window, window_3d_name,
                create_color_material(1.0f, 0.0f, 0.5f, "正方形"), true);
 
-    // 在3D窗口中创建一个三角形
-    triangle_3d_window = Vis::Line2D::create();
+    // 在3D窗口中创建一个三角形 - 使用Polygon类型（顶点序列）
+    std::vector<Vis::Vec2> triangle_vertices = {
+        {1.0f, 0.0f},     // 顶点1
+        {-0.5f, 0.866f},  // 顶点2
+        {-0.5f, -0.866f}  // 顶点3
+    };
+    triangle_3d_window = Vis::Polygon::create(triangle_vertices);
     server.add(triangle_3d_window, window_3d_name,
                create_color_material(0.5f, 0.0f, 1.0f, "三角形"), true);
   }
@@ -283,7 +292,7 @@ class ComplexAnimationsDemo {
       points_2d[i]->set_position({radius * cosf(angle), radius * sinf(angle)});
     }
 
-    // 标准波形（50个采样点）
+    // 标准波形 - Line2D更新点序列是正确的
     if (wave_line) {
       std::vector<Vis::Vec2> wave_points;
       for (int i = 0; i < 100; ++i) {
@@ -294,12 +303,11 @@ class ComplexAnimationsDemo {
       wave_line->set_points(wave_points);
     }
 
-    // 更光滑的波形（200个采样点）
+    // 更光滑的波形
     if (smooth_wave_line) {
       std::vector<Vis::Vec2> smooth_points;
       for (int i = 0; i < 300; ++i) {
         float x = -4.0f + 8.0f * (i / 299.0f);
-        // 更复杂的波形函数，产生更光滑的曲线
         float y = sinf(x * 2.0f + t * 1.5f) * 0.8f +
                   sinf(x * 4.0f + t * 2.5f) * 0.4f +
                   cosf(x * 1.5f + t * 0.8f) * 0.6f;
@@ -309,10 +317,10 @@ class ComplexAnimationsDemo {
       smooth_wave_line->set_points(smooth_points);
     }
 
-    // 螺旋线动画
+    // 螺旋线动画 - Line2D更新点序列是正确的
     if (spiral_line) {
       std::vector<Vis::Vec2> spiral_points;
-      int spiral_points_count = 150;  // 高采样率使螺旋线更光滑
+      int spiral_points_count = 150;
       for (int i = 0; i < spiral_points_count; ++i) {
         float angle = i * 0.1f + t * 0.5f;
         float radius = 0.5f + std::fmod(angle * 0.1f, 5.0f);
@@ -365,46 +373,39 @@ class ComplexAnimationsDemo {
           {sinf(t * 1.5f) * 2.0f, sinf(t * 3.0f) * 1.0f});
     }
 
-    // 圆形 - 在XY平面
+    // 圆形 - 更新半径和位置
     if (circle_3d_window) {
-      std::vector<Vis::Vec2> circle_points;
-      int circle_segments = 100;                    // 高采样率使圆形更光滑
       float radius = 1.5f + 0.3f * sinf(t * 0.7f);  // 半径动态变化
-      for (int i = 0; i <= circle_segments; ++i) {
-        float angle = 2.0f * M_PI * i / circle_segments;
-        circle_points.push_back({radius * cosf(angle), radius * sinf(angle)});
-      }
-      circle_3d_window->set_points(circle_points);
+      circle_3d_window->set_radius(radius);
+      // 圆形也可以移动
+      circle_3d_window->set_center(
+          {sinf(t * 0.5f) * 1.0f, cosf(t * 0.5f) * 1.0f});
     }
 
-    // 正方形 - 旋转动画
+    // 正方形 - 更新位置和旋转
     if (square_3d_window) {
-      std::vector<Vis::Vec2> square_points;
-      float size = 1.2f + 0.2f * sinf(t * 0.5f);
-      float rotation = t * 0.3f;
+      // 获取当前的pose并更新
+      auto current_pose = square_3d_window->get_center();
+      current_pose.set_position({sinf(t * 0.3f) * 2.0f, cosf(t * 0.3f) * 2.0f});
+      current_pose.set_angle(t * 0.5f);
+      square_3d_window->set_center(current_pose);
 
-      for (int i = 0; i < 4; ++i) {
-        float angle = rotation + i * M_PI / 2.0f;
-        square_points.push_back({size * cosf(angle), size * sinf(angle)});
-      }
-      // 闭合正方形
-      square_points.push_back(square_points[0]);
-      square_3d_window->set_points(square_points);
+      // 也可以动态改变尺寸
+      float width = 2.4f + 0.4f * sinf(t * 0.8f);
+      square_3d_window->set_width(width);
     }
 
-    // 三角形 - 缩放和旋转动画
+    // 三角形 - 更新位置和旋转（通过更新顶点）
     if (triangle_3d_window) {
-      std::vector<Vis::Vec2> triangle_points;
       float scale = 1.0f + 0.3f * sinf(t * 0.8f);
       float rotation = t * 0.4f;
 
+      std::vector<Vis::Vec2> new_vertices;
       for (int i = 0; i < 3; ++i) {
         float angle = rotation + i * 2.0f * M_PI / 3.0f;
-        triangle_points.push_back({scale * cosf(angle), scale * sinf(angle)});
+        new_vertices.push_back({scale * cosf(angle), scale * sinf(angle)});
       }
-      // 闭合三角形
-      triangle_points.push_back(triangle_points[0]);
-      triangle_3d_window->set_points(triangle_points);
+      triangle_3d_window->set_vertices(new_vertices);
     }
   }
 };

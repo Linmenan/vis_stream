@@ -916,6 +916,24 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     } else if (auto p = std::dynamic_pointer_cast<Vis::Box3D>(obj)) {
       to_proto(*p, cmd->mutable_box_3d());
     }
+    // 添加对2D图元的支持（在3D窗口中显示）
+    else if (auto p = std::dynamic_pointer_cast<Vis::Point2D>(obj)) {
+      to_proto(*p, cmd->mutable_point_2d());
+    } else if (auto p = std::dynamic_pointer_cast<Vis::Pose2D>(obj)) {
+      to_proto(*p, cmd->mutable_pose_2d());
+    } else if (auto p = std::dynamic_pointer_cast<Vis::Circle>(obj)) {
+      to_proto(*p, cmd->mutable_circle());
+    } else if (auto p = std::dynamic_pointer_cast<Vis::Box2D>(obj)) {
+      to_proto(*p, cmd->mutable_box_2d());
+    } else if (auto p = std::dynamic_pointer_cast<Vis::Line2D>(obj)) {
+      to_proto(*p, cmd->mutable_line_2d());
+    } else if (auto p = std::dynamic_pointer_cast<Vis::Trajectory2D>(obj)) {
+      to_proto(*p, cmd->mutable_trajectory_2d());
+    } else if (auto p = std::dynamic_pointer_cast<Vis::Polygon>(obj)) {
+      to_proto(*p, cmd->mutable_polygon());
+    } else {
+      std::cerr << "Warning: Unknown 3D window object type" << std::endl;
+    }
   }
 
   void populate_2d_geometry_update(std::shared_ptr<Vis::Observable> obj,
@@ -947,6 +965,22 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       to_proto(*p, cmd->mutable_ball());
     } else if (auto p = std::dynamic_pointer_cast<Vis::Box3D>(obj)) {
       to_proto(*p, cmd->mutable_box_3d());
+    }
+    // 添加对2D图元的支持（在3D窗口中更新）
+    else if (auto p = std::dynamic_pointer_cast<Vis::Point2D>(obj)) {
+      to_proto(*p, cmd->mutable_point_2d());
+    } else if (auto p = std::dynamic_pointer_cast<Vis::Pose2D>(obj)) {
+      to_proto(*p, cmd->mutable_pose_2d());
+    } else if (auto p = std::dynamic_pointer_cast<Vis::Circle>(obj)) {
+      to_proto(*p, cmd->mutable_circle());
+    } else if (auto p = std::dynamic_pointer_cast<Vis::Box2D>(obj)) {
+      to_proto(*p, cmd->mutable_box_2d());
+    } else if (auto p = std::dynamic_pointer_cast<Vis::Line2D>(obj)) {
+      to_proto(*p, cmd->mutable_line_2d());
+    } else if (auto p = std::dynamic_pointer_cast<Vis::Trajectory2D>(obj)) {
+      to_proto(*p, cmd->mutable_trajectory_2d());
+    } else if (auto p = std::dynamic_pointer_cast<Vis::Polygon>(obj)) {
+      to_proto(*p, cmd->mutable_polygon());
     }
   }
 
