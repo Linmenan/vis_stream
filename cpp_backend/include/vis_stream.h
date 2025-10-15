@@ -6,13 +6,14 @@
 #include <string>
 #include <vector>
 
+#include "vis_primitives.h"
 // 前向声明
 namespace Vis {
 class Observable;
 }
 namespace visualization {
 class Material;
-}
+}  // namespace visualization
 
 /**
  * @brief 可视化服务器主类 (单例模式)
@@ -37,9 +38,9 @@ class VisualizationServer {
                               int interval_ms = 33);
   // --- 可视化对象管理 API ---
   void add(std::shared_ptr<Vis::Observable> obj, const std::string& window_name,
-           const visualization::Material& material, bool is_3d);
+           const Vis::MaterialProps& material, bool is_3d);
   void add(const Vis::Observable& obj, const std::string& window_name,
-           const visualization::Material& material, bool is_3d);
+           const Vis::MaterialProps& material, bool is_3d);
 
   void clear_static(const std::string& window_name, bool is_3d);
   void clear_dynamic(const std::string& window_name, bool is_3d);
@@ -78,7 +79,7 @@ class VisualizationServer {
   ~VisualizationServer();
   VisualizationServer(VisualizationServer&&) noexcept;
   VisualizationServer& operator=(VisualizationServer&&) noexcept;
-
+  visualization::Material convert_material(const Vis::MaterialProps& props);
   // 前向声明实现类
   class ServerImpl;
   std::unique_ptr<ServerImpl> m_impl;

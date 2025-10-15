@@ -24,23 +24,29 @@ void sleep_ms(int milliseconds) {
   std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
 }
 
-visualization::Material create_random_material(const std::string& legend = "") {
+Vis::MaterialProps create_random_material(const std::string& legend = "") {
   static std::random_device rd;
   static std::mt19937 gen(rd());
   static std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 
-  visualization::Material mat;
-  mat.mutable_color()->set_r(dist(gen));
-  mat.mutable_color()->set_g(dist(gen));
-  mat.mutable_color()->set_b(dist(gen));
-  mat.set_point_size(5.0f + dist(gen) * 10.0f);
-  mat.set_line_width(1.0f + dist(gen) * 3.0f);
-  mat.set_legend(legend);
+  Vis::MaterialProps mat;
+  mat.color = Vis::ColorRGBA(dist(gen), dist(gen), dist(gen));
+  mat.point_size = 5.0f + dist(gen) * 10.0f;
+  mat.line_width = 1.0f + dist(gen) * 3.0f;
+  mat.legend = legend;
 
-  static std::vector<visualization::Material::PointShape> shapes = {
-      visualization::Material::SQUARE, visualization::Material::CIRCLE,
-      visualization::Material::CROSS, visualization::Material::DIAMOND};
-  mat.set_point_shape(shapes[std::uniform_int_distribution<>(0, 3)(gen)]);
+  static std::vector<Vis::MaterialProps::PointShape> shapes = {
+      Vis::MaterialProps::PointShape::SQUARE,
+      Vis::MaterialProps::PointShape::CIRCLE,
+      Vis::MaterialProps::PointShape::CROSS,
+      Vis::MaterialProps::PointShape::DIAMOND};
+  mat.point_shape = (shapes[std::uniform_int_distribution<>(0, 3)(gen)]);
+
+  static std::vector<Vis::MaterialProps::LineStyle> line_styles = {
+      Vis::MaterialProps::LineStyle::SOLID,
+      Vis::MaterialProps::LineStyle::DASHED,
+      Vis::MaterialProps::LineStyle::DOTTED};
+  mat.line_style = (line_styles[std::uniform_int_distribution<>(0, 2)(gen)]);
 
   return mat;
 }

@@ -66,38 +66,43 @@ Vis::Quaternion euler_to_quaternion(float roll, float pitch, float yaw) {
   return q;
 }
 
-visualization::Material create_random_material(const std::string& legend = "") {
+Vis::MaterialProps create_random_material(const std::string& legend = "") {
   static std::random_device rd;
   static std::mt19937 gen(rd());
   static std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 
-  visualization::Material mat;
-  mat.mutable_color()->set_r(dist(gen));
-  mat.mutable_color()->set_g(dist(gen));
-  mat.mutable_color()->set_b(dist(gen));
-  mat.set_point_size(5.0f + dist(gen) * 10.0f);
-  mat.set_line_width(1.0f + dist(gen) * 3.0f);
-  mat.set_legend(legend);
+  Vis::MaterialProps mat;
+  mat.color = Vis::ColorRGBA(dist(gen), dist(gen), dist(gen));
+  mat.point_size = 5.0f + dist(gen) * 10.0f;
+  mat.line_width = 1.0f + dist(gen) * 3.0f;
+  mat.legend = legend;
 
-  static std::vector<visualization::Material::PointShape> shapes = {
-      visualization::Material::SQUARE, visualization::Material::CIRCLE,
-      visualization::Material::CROSS, visualization::Material::DIAMOND};
-  mat.set_point_shape(shapes[std::uniform_int_distribution<>(0, 3)(gen)]);
+  static std::vector<Vis::MaterialProps::PointShape> shapes = {
+      Vis::MaterialProps::PointShape::SQUARE,
+      Vis::MaterialProps::PointShape::CIRCLE,
+      Vis::MaterialProps::PointShape::CROSS,
+      Vis::MaterialProps::PointShape::DIAMOND};
+  mat.point_shape = (shapes[std::uniform_int_distribution<>(0, 3)(gen)]);
+
+  static std::vector<Vis::MaterialProps::LineStyle> line_styles = {
+      Vis::MaterialProps::LineStyle::SOLID,
+      Vis::MaterialProps::LineStyle::DASHED,
+      Vis::MaterialProps::LineStyle::DOTTED};
+  mat.line_style = (line_styles[std::uniform_int_distribution<>(0, 2)(gen)]);
 
   return mat;
 }
 
 // 创建特定颜色的材质
-visualization::Material create_color_material(float r, float g, float b,
-                                              const std::string& legend = "") {
-  visualization::Material mat;
-  mat.mutable_color()->set_r(r);
-  mat.mutable_color()->set_g(g);
-  mat.mutable_color()->set_b(b);
-  mat.set_point_size(8.0f);
-  mat.set_line_width(2.0f);
-  mat.set_legend(legend);
-  mat.set_point_shape(visualization::Material::CIRCLE);
+Vis::MaterialProps create_color_material(float r, float g, float b,
+                                         const std::string& legend = "") {
+  Vis::MaterialProps mat;
+  mat.color = Vis::ColorRGBA(r, g, b);
+
+  mat.point_size = 8.0f;
+  mat.line_width = 2.0f;
+  mat.legend = legend;
+  mat.point_shape = Vis::MaterialProps::PointShape::CIRCLE;
   return mat;
 }
 

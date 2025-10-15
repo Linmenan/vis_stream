@@ -1132,16 +1132,14 @@ bool VisualizationServer::is_connected() const {
 }
 void VisualizationServer::add(std::shared_ptr<Vis::Observable> obj,
                               const std::string& name,
-                              const visualization::Material& material,
-                              bool is_3d) {
-  m_impl->add(obj, name, material, is_3d);
+                              const Vis::MaterialProps& material, bool is_3d) {
+  m_impl->add(obj, name, convert_material(material), is_3d);
 }
 
 void VisualizationServer::add(const Vis::Observable& obj,
                               const std::string& name,
-                              const visualization::Material& material,
-                              bool is_3d) {
-  m_impl->add(obj, name, material, is_3d);
+                              const Vis::MaterialProps& material, bool is_3d) {
+  m_impl->add(obj, name, convert_material(material), is_3d);
 }
 
 void VisualizationServer::clear_static(const std::string& name, bool is_3d) {
@@ -1218,4 +1216,53 @@ size_t VisualizationServer::get_windows_number() const {
 
 size_t VisualizationServer::get_observables_number() const {
   return m_impl->get_observables_number();
+}
+
+visualization::Material VisualizationServer::convert_material(
+    const Vis::MaterialProps& props) {
+  visualization::Material mat;
+  mat.mutable_color()->set_r(props.color.r);
+  mat.mutable_color()->set_g(props.color.g);
+  mat.mutable_color()->set_b(props.color.b);
+  mat.mutable_color()->set_a(props.color.a);
+  mat.set_point_size(props.point_size);
+  mat.set_line_width(props.line_width);
+  mat.set_legend(props.legend);
+  mat.set_filled(props.filled);
+
+  // 转换点形状
+  switch (props.point_shape) {
+    case Vis::MaterialProps::PointShape::SQUARE:
+      mat.set_point_shape(visualization::Material::SQUARE);
+      break;
+    case Vis::MaterialProps::PointShape::CIRCLE:
+      mat.set_point_shape(visualization::Material::CIRCLE);
+      break;
+    case Vis::MaterialProps::PointShape::CROSS:
+      mat.set_point_shape(visualization::Material::CROSS);
+      break;
+    case Vis::MaterialProps::PointShape::DIAMOND:
+      mat.set_point_shape(visualization::Material::DIAMOND);
+      break;
+    default:
+      mat.set_point_shape(visualization::Material::CIRCLE);
+  }
+
+  // 转换线型
+  switch (props.line_style) {
+    case Vis::MaterialProps::LineStyle::SOLID:
+      mat.set_line_style(visualization::Material::SOLID);
+      break;
+    case Vis::MaterialProps::LineStyle::DASHED:
+      mat.set_line_style(visualization::Material::DASHED);
+      break;
+    case Vis::MaterialProps::LineStyle::DOTTED:
+      mat.set_line_style(visualization::Material::DOTTED);
+      break;
+    default:
+      mat.set_line_style(visualization::Material::SOLID);
+  }
+
+  mat.set_legend_on(props.legend_on);
+  return mat;
 }

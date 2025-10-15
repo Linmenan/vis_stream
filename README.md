@@ -217,13 +217,13 @@ sudo apt-get install python3
   * [x] **任务2.2**：在 C++ `VisualizationServer` 中实现公共API，用于管理和更新可视化对象。
   * [x] **任务2.3**：在前端 `ObjectFactory` 中，实现接收指令并创建/更新/删除相应的 Three.js 对象。
   * [x] **任务2.4**：完整支持 `Point3D`、`Pose3D`、`Ball`、`Box3D` 等多种3D图元。
-  * [ ] **任务2.5**：增加对 `LineStrip`（折线）、`Polygon`（多边形）等更多2D/3D图元的支持。
+  * [x] **任务2.5**：增加对 `LineStrip`（折线）、`Polygon`（多边形）等更多2D/3D图元的支持。
 
 ### 阶段三：高级功能与UI元素
 
   * [x] **任务3.1**：集成 `THREE.GridHelper` 和 `THREE.AxesHelper`，并可通过后端指令控制其显隐。
   * [ ] **任务3.2**：扩展后端API和前端工厂，支持更复杂的几何体，如 `Surface`（曲面）、`Vector`（向量场）。
-  * [ ] **任务3.3**：在后端 `VisualizationServer` 中，实现完整的多窗口管理机制，支持向特定客户端窗口发送指令。
+  * [x] **任务3.3**：在后端 `VisualizationServer` 中，实现完整的多窗口管理机制，支持向特定客户端窗口发送指令。
   * [ ] **任务3.4**：在 `.proto` 中定义用于创建和更新HTML标签的指令，在前端实现2D UI叠加渲染。
 
 ### 阶段四：优化、集成与部署
