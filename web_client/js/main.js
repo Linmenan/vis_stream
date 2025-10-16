@@ -805,12 +805,22 @@ class DynamicGrid {
             transparent: true,
             opacity: 0.5
         });
+        // 坐标轴网格材质（更粗更明显）
+        const axisMaterial = new THREE.LineBasicMaterial({
+            color: 0x000000,
+            transparent: true,
+            opacity: 0.6,
+        });
 
         // 网格几何体
         const geometry = new THREE.BufferGeometry();
+        const axisGeometry = new THREE.BufferGeometry();    // 坐标轴网格几何体
         this.gridLines = new THREE.LineSegments(geometry, material);
+        this.axisGridLines = new THREE.LineSegments(axisGeometry, axisMaterial);
         this.gridLines.frustumCulled = false;
+        this.axisGridLines.frustumCulled = false;
         this.scene.add(this.gridLines);
+        this.scene.add(this.axisGridLines);
 
         // 刻度标签管理
         this.xLabels = [];
@@ -902,21 +912,31 @@ class DynamicGrid {
 
             const xInterval = this.calculateNiceInterval(viewWidth);
             const yInterval = this.calculateNiceInterval(viewHeight);
+            // 统一使用最小间隔，保持网格一致性
+            const unifiedInterval = Math.min(xInterval, yInterval);
 
             const vertices = [];
+            const axisVertices = []; // 专门存储坐标轴网格线
             const newXLabels = [];
             const newYLabels = [];
 
             // 生成X轴网格线
-            const xStart = Math.floor(extendedBounds.left / xInterval) * xInterval;
-            const xEnd = Math.ceil(extendedBounds.right / xInterval) * xInterval;
+            const xStart = Math.floor(extendedBounds.left / unifiedInterval) * unifiedInterval;
+            const xEnd = Math.ceil(extendedBounds.right / unifiedInterval) * unifiedInterval;
 
-            for (let x = xStart; x <= xEnd; x += xInterval) {
+            for (let x = xStart; x <= xEnd; x += unifiedInterval) {
                 const preciseX = this.roundToPrecision(x, 8);
 
-                // 垂直线：从底部到顶部
-                vertices.push(preciseX, extendedBounds.bottom, 0, preciseX, extendedBounds.top, 0);
+                // 判断是否为坐标轴（过原点）
+                const isAxisLine = Math.abs(x) < unifiedInterval * 0.1; // 容差范围内视为坐标轴
 
+                if (isAxisLine) {
+                    // 坐标轴网格线 - 添加到axisVertices
+                    axisVertices.push(preciseX, extendedBounds.bottom, 0, preciseX, extendedBounds.top, 0);
+                } else {
+                    // 普通网格线 - 添加到vertices
+                    vertices.push(preciseX, extendedBounds.bottom, 0, preciseX, extendedBounds.top, 0);
+                }
                 // X轴刻度标签（只在可见区域显示）
                 if (x >= worldBounds.left && x <= worldBounds.right) {
                     const screenPos = this.coordinateSystem.worldToScreen(x, worldBounds.bottom, this.camera, this.controls);
@@ -927,15 +947,22 @@ class DynamicGrid {
             }
 
             // 生成Y轴网格线
-            const yStart = Math.floor(extendedBounds.bottom / yInterval) * yInterval;
-            const yEnd = Math.ceil(extendedBounds.top / yInterval) * yInterval;
+            const yStart = Math.floor(extendedBounds.bottom / unifiedInterval) * unifiedInterval;
+            const yEnd = Math.ceil(extendedBounds.top / unifiedInterval) * unifiedInterval;
 
-            for (let y = yStart; y <= yEnd; y += yInterval) {
+            for (let y = yStart; y <= yEnd; y += unifiedInterval) {
                 const preciseY = this.roundToPrecision(y, 8);
 
-                // 水平线：从左到右
-                vertices.push(extendedBounds.left, preciseY, 0, extendedBounds.right, preciseY, 0);
+                // 判断是否为坐标轴（过原点）
+                const isAxisLine = Math.abs(y) < unifiedInterval * 0.1; // 容差范围内视为坐标轴
 
+                if (isAxisLine) {
+                    // 坐标轴网格线 - 添加到axisVertices
+                    axisVertices.push(extendedBounds.left, preciseY, 0, extendedBounds.right, preciseY, 0);
+                } else {
+                    // 普通网格线 - 添加到vertices
+                    vertices.push(extendedBounds.left, preciseY, 0, extendedBounds.right, preciseY, 0);
+                }
                 // Y轴刻度标签（只在可见区域显示）
                 if (y >= worldBounds.bottom && y <= worldBounds.top) {
                     const screenPos = this.coordinateSystem.worldToScreen(worldBounds.left, y, this.camera, this.controls);
@@ -948,6 +975,8 @@ class DynamicGrid {
             // 更新几何体
             this.gridLines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
             this.gridLines.geometry.attributes.position.needsUpdate = true;
+            this.axisGridLines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(axisVertices, 3));
+            this.axisGridLines.geometry.attributes.position.needsUpdate = true;
 
             // 更新标签
             this.updateAxisLabels(this.xAxisContainer, this.xLabels, newXLabels, 'x');
@@ -1070,6 +1099,19 @@ class DynamicGrid {
                 this.gridLines.material.dispose();
             }
             this.gridLines = null;
+        }
+        // 清理坐标轴网格
+        if (this.axisGridLines) {
+            if (this.scene && this.axisGridLines.parent) {
+                this.scene.remove(this.axisGridLines);
+            }
+            if (this.axisGridLines.geometry) {
+                this.axisGridLines.geometry.dispose();
+            }
+            if (this.axisGridLines.material) {
+                this.axisGridLines.material.dispose();
+            }
+            this.axisGridLines = null;
         }
 
         // 清理标签
@@ -1363,7 +1405,7 @@ class Plotter2D extends BasePlotter {
      * 适应视图到数据（用于手动调用）
      */
     fitViewToData = (padding = 0.1) => {
-        // console.log('🎯 手动执行适应视图到数据');
+        // console.log('🎯 手动执行适应视图到数据（保持等比例）');
         this.dynamicFitPadding = padding; // 更新填充值
 
         // 临时禁用动态适应避免循环
@@ -1372,12 +1414,14 @@ class Plotter2D extends BasePlotter {
 
         try {
             if (this.sceneObjects.size === 0) {
+                // console.log('又检测到没有图元对象，重置默认视角');
                 this.resetToDefaultView();
                 return;
             }
 
             const sceneBBox = this.calculateAccurateBoundingBox();
             if (!sceneBBox || sceneBBox.isEmpty()) {
+                console.warn('获取不到场景边界，重置默认视角');
                 this.resetToDefaultView();
                 return;
             }
@@ -1389,7 +1433,60 @@ class Plotter2D extends BasePlotter {
                 top: sceneBBox.max.y
             };
 
-            this.coordinateSystem.fitToData(dataBounds, this.camera, this.controls, padding);
+            // 计算数据范围
+            const { left, right, bottom, top } = dataBounds;
+            const dataWidth = right - left;
+            const dataHeight = top - bottom;
+            // 如果数据范围无效，使用默认适应
+            if (dataWidth === 0 || dataHeight === 0) {
+                this.coordinateSystem.fitToData(dataBounds, this.camera, this.controls, padding);
+                return;
+            }
+            // 计算画布宽高比和数据宽高比
+            const canvasAspect = this.coordinateSystem.canvasWidth / this.coordinateSystem.canvasHeight;
+            const dataAspect = dataWidth / dataHeight;
+            // console.log('📐 画布比例:', canvasAspect.toFixed(3), '数据比例:', dataAspect.toFixed(3));
+            // 添加padding
+            const paddedWidth = dataWidth * (1 + padding);
+            const paddedHeight = dataHeight * (1 + padding);
+
+            // 计算中心点
+            const centerX = (left + right) / 2;
+            const centerY = (bottom + top) / 2;
+
+            let viewWidth, viewHeight;
+
+            // 根据宽高比决定适应策略
+            if (dataAspect > canvasAspect) {
+                // 数据比画布"宽"，以宽度为准保持比例
+                viewWidth = paddedWidth;
+                viewHeight = viewWidth / canvasAspect;
+            } else {
+                // 数据比画布"高"，以高度为准保持比例
+                viewHeight = paddedHeight;
+                viewWidth = viewHeight * canvasAspect;
+            }
+
+            // 确保适应后的范围至少包含原始数据范围（考虑padding）
+            if (viewHeight < paddedHeight) {
+                viewHeight = paddedHeight;
+                viewWidth = viewHeight * canvasAspect;
+            }
+            if (viewWidth < paddedWidth) {
+                viewWidth = paddedWidth;
+                viewHeight = viewWidth / canvasAspect;
+            }
+
+            // 构建保持比例的新边界
+            const proportionalBounds = {
+                left: centerX - viewWidth / 2,
+                right: centerX + viewWidth / 2,
+                bottom: centerY - viewHeight / 2,
+                top: centerY + viewHeight / 2
+            };
+
+            // 使用新的边界进行适应（padding设为0，因为已经在计算中考虑了）
+            this.coordinateSystem.fitToData(proportionalBounds, this.camera, this.controls, 0);
             this.forceImmediateRender();
 
         } catch (error) {
@@ -1407,23 +1504,15 @@ class Plotter2D extends BasePlotter {
         const bbox = new THREE.Box3();
         let hasValidGeometry = false;
 
-        this.sceneObjects.forEach(obj => {
-            // 确保几何体是有效的
-            if (obj.geometry && obj.geometry.attributes && obj.geometry.attributes.position) {
-                obj.updateMatrixWorld(true);
-
-                const geometry = obj.geometry;
-                const position = geometry.attributes.position;
-
-                // 直接处理顶点数据，避免setFromObject的精度问题
-                for (let i = 0; i < position.count; i++) {
-                    const vertex = new THREE.Vector3();
-                    vertex.fromBufferAttribute(position, i);
-                    obj.localToWorld(vertex); // 转换到世界坐标
-                    bbox.expandByPoint(vertex);
+        this.sceneObjects.forEach((obj) => {
+            try {
+                const objBBox = new THREE.Box3().setFromObject(obj);
+                if (!objBBox.isEmpty()) {
+                    bbox.union(objBBox);
+                    hasValidGeometry = true;
                 }
-
-                hasValidGeometry = true;
+            } catch (error) {
+                console.error('边界框计算失败:', error);
             }
         });
 
@@ -1434,7 +1523,7 @@ class Plotter2D extends BasePlotter {
     * 重置视角方法
     */
     resetView = () => {
-        // console.log('🔁 用户点击重置视角');
+        // console.log('🔁 用户点击重置视角，当前对象数量:', this.sceneObjects.size);
 
         // 禁用动态适应
         this.isDynamicFitEnabled = false;
@@ -1442,10 +1531,13 @@ class Plotter2D extends BasePlotter {
             this.dynamicFitToggle.checked = false;
         }
 
+
         if (this.sceneObjects.size === 0) {
+            // console.log('📭 没有图元对象，重置到默认视图');
             this.resetToDefaultView();
         } else {
             // 使用较小的padding确保图元完全可见
+            // console.log('🎯 有图元对象，执行适应视图');
             this.fitViewToData(0.05);
         }
 
@@ -2134,8 +2226,32 @@ class ObjectFactory {
     }
 
     update2D(obj, cmd, material) {
-        const mat = material || obj.material; // Allow passing material during creation
+        const mat = material || obj.material;
         const data = cmd.getGeometryDataCase();
+
+        console.log(`🔄 更新2D对象，类型: ${data}, obj类型: ${obj.type}, isMesh: ${obj.isMesh}`);
+
+        // 只在有 material 的对象上处理材质
+        if (mat && obj.material) {
+            console.log(`🎨 材质处理 - 有材质: ${!!mat}, obj有材质: ${!!obj.material}`);
+
+            // 修正：先检查是否有填充颜色，再获取
+            if (obj.isMesh && mat.hasFillColor && mat.hasFillColor()) {
+                const fillColor = mat.getFillColor();
+                console.log(`🟦 设置填充颜色: R=${fillColor.getR()}, G=${fillColor.getG()}, B=${fillColor.getB()}, A=${fillColor.getA()}`);
+                obj.material.color.setRGB(fillColor.getR(), fillColor.getG(), fillColor.getB());
+                obj.material.opacity = fillColor.getA();
+                obj.material.transparent = fillColor.getA() < 1.0;
+            } else if (mat.getColor) {
+                const color = mat.getColor();
+                console.log(`🟨 设置线条颜色: R=${color.getR()}, G=${color.getG()}, B=${color.getB()}`);
+                obj.material.color.setRGB(color.getR(), color.getG(), color.getB());
+            }
+        } else {
+            console.log(`⚠️ 跳过材质处理 - obj没有material属性或没有材质`);
+        }
+
+
         switch (data) {
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.POINT_2D: {
                 const pos = cmd.getPoint2d().getPosition();
@@ -2160,13 +2276,21 @@ class ObjectFactory {
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.POLYGON: {
                 const geom = cmd.getPolygon();
                 const vertices = geom.getVerticesList().map(p => new THREE.Vector2(p.getPosition().getX(), p.getPosition().getY()));
-
+                console.log(`📐 POLYGON更新 - 顶点数量: ${vertices.length}, obj.isMesh: ${obj.isMesh}`);
                 if (obj.isMesh) {
+                    console.log(`🟦 创建填充POLYGON几何体`);
                     // 填充的多边形 - 使用 ShapeGeometry
                     const shape = new THREE.Shape(vertices);
                     obj.geometry.dispose();
                     obj.geometry = new THREE.ShapeGeometry(shape);
+
+                    // 使用传入的材质颜色
+                    if (mat && mat.color) {
+                        obj.material.color.copy(mat.color);
+                    }
+                    console.log(`✅ 填充POLYGON几何体创建完成`);
                 } else {
+                    console.log(`🟨 创建线框POLYGON几何体`);
                     // 线框多边形 - 使用闭合的线
                     const points = vertices.map(v => new THREE.Vector3(v.x, v.y, 0));
                     // 闭合多边形
@@ -2175,21 +2299,31 @@ class ObjectFactory {
                     }
                     obj.geometry.dispose();
                     obj.geometry = new THREE.BufferGeometry().setFromPoints(points);
+
+                    // 使用传入的材质颜色
+                    if (mat && mat.color) {
+                        obj.material.color.copy(mat.color);
+                    }
+                    console.log(`✅ 线框POLYGON几何体创建完成`);
                 }
                 break;
             }
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.CIRCLE: {
+                console.log(`📐 CIRCLE更新 - obj.isMesh: ${obj.isMesh}`);
                 const geom = cmd.getCircle();
                 const center = geom.getCenter();
                 const radius = geom.getRadius();
 
                 if (obj.isMesh) {
-                    // 填充的圆形 - 使用 CircleGeometry
                     obj.geometry.dispose();
                     obj.geometry = new THREE.CircleGeometry(radius, 32);
                     obj.position.set(center.getX(), center.getY(), 0);
+
+                    // 使用传入的材质颜色
+                    if (mat && mat.color) {
+                        obj.material.color.copy(mat.color);
+                    }
                 } else {
-                    // 线框圆形 - 使用椭圆曲线
                     const curve = new THREE.EllipseCurve(
                         center.getX(), center.getY(),
                         radius, radius,
@@ -2199,10 +2333,17 @@ class ObjectFactory {
                     const points = curve.getPoints(50);
                     obj.geometry.dispose();
                     obj.geometry = new THREE.BufferGeometry().setFromPoints(points);
+
+                    // 使用传入的材质颜色
+                    if (mat && mat.color) {
+                        obj.material.color.copy(mat.color);
+                    }
                 }
                 break;
             }
+
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.BOX_2D: {
+                console.log(`📐 BOX_2D更新 - obj.isMesh: ${obj.isMesh}`);
                 const geom = cmd.getBox2d();
                 const center = geom.getCenter().getPosition();
                 const theta = geom.getCenter().getTheta();
@@ -2232,32 +2373,136 @@ class ObjectFactory {
                 });
 
                 if (obj.isMesh) {
-                    // 填充的矩形 - 使用 ShapeGeometry
                     const shape = new THREE.Shape(worldCorners.map(v => new THREE.Vector2(v.x, v.y)));
                     obj.geometry.dispose();
                     obj.geometry = new THREE.ShapeGeometry(shape);
+
+                    // 使用传入的材质颜色
+                    if (mat && mat.color) {
+                        obj.material.color.copy(mat.color);
+                    }
                 } else {
-                    // 线框矩形 - 使用闭合的线
                     const closedCorners = [...worldCorners, worldCorners[0]];
                     obj.geometry.dispose();
                     obj.geometry = new THREE.BufferGeometry().setFromPoints(closedCorners);
+
+                    // 使用传入的材质颜色
+                    if (mat && mat.color) {
+                        obj.material.color.copy(mat.color);
+                    }
                 }
                 break;
             }
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.TRAJECTORY_2D: {
+                console.log(`📐 TRAJECTORY_2D更新 - 轨迹点数量: ${cmd.getTrajectory2d().getPosesList().length}`);
                 const geom = cmd.getTrajectory2d();
-                // 轨迹由多个 Box2D 组成，这里简化处理为线序列
-                const points = geom.getPosesList().map(pose =>
-                    new THREE.Vector3(
-                        pose.getCenter().getPosition().getX(),
-                        pose.getCenter().getPosition().getY(),
-                        0
-                    )
-                );
-                obj.geometry.dispose();
-                obj.geometry = new THREE.BufferGeometry().setFromPoints(points);
+
+                // 清除现有的子对象
+                while (obj.children.length > 0) {
+                    const child = obj.children[0];
+                    obj.remove(child);
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) child.material.dispose();
+                }
+
+                const poses = geom.getPosesList();
+
+                // 安全地获取颜色 - 修正这部分
+                let fillColor, lineColor;
+
+                // 获取填充颜色
+                if (mat && mat.hasFillColor && mat.hasFillColor()) {
+                    const fillColorObj = mat.getFillColor();
+                    fillColor = new THREE.Color(fillColorObj.getR(), fillColorObj.getG(), fillColorObj.getB());
+                } else if (mat && mat.getColor) {
+                    const colorObj = mat.getColor();
+                    fillColor = new THREE.Color(colorObj.getR(), colorObj.getG(), colorObj.getB());
+                } else {
+                    fillColor = new THREE.Color(0x00ff00); // 默认颜色
+                }
+
+                // 获取线条颜色
+                if (mat && mat.getColor) {
+                    const colorObj = mat.getColor();
+                    lineColor = new THREE.Color(colorObj.getR(), colorObj.getG(), colorObj.getB());
+                } else {
+                    lineColor = new THREE.Color(0x006600); // 默认颜色
+                }
+
+                const opacity = 0.3;
+                const lineWidth = 1;
+
+                console.log(`🎨 TRAJECTORY颜色 - 填充: ${fillColor.getHexString()}, 线条: ${lineColor.getHexString()}`);
+
+                poses.forEach((pose, index) => {
+                    const center = pose.getCenter();
+                    const centerX = center.getPosition().getX();
+                    const centerY = center.getPosition().getY();
+
+                    // 从 center 中获取朝向角 theta，就像 BOX_2D 中一样
+                    const theta = center.getTheta();
+
+                    // 获取安全盒尺寸 - 需要根据 TRAJECTORY_2D 的实际字段名调整
+                    // 这里假设和 BOX_2D 有相同的字段名
+                    const w = pose.getWidth ? pose.getWidth() : 1.0;
+                    const lf = pose.getLengthFront ? pose.getLengthFront() : 1.0;
+                    const lr = pose.getLengthRear ? pose.getLengthRear() : 1.0;
+
+                    // 计算矩形的四个角点（与 BOX_2D 相同的逻辑）
+                    const localCorners = [
+                        new THREE.Vector2(-lr, w / 2),
+                        new THREE.Vector2(lf, w / 2),
+                        new THREE.Vector2(lf, -w / 2),
+                        new THREE.Vector2(-lr, -w / 2)
+                    ];
+
+                    // 旋转并平移角点
+                    const worldCorners = localCorners.map(corner => {
+                        const rotated = new THREE.Vector2(
+                            corner.x * Math.cos(theta) - corner.y * Math.sin(theta),
+                            corner.x * Math.sin(theta) + corner.y * Math.cos(theta)
+                        );
+                        return new THREE.Vector3(
+                            rotated.x + centerX,
+                            rotated.y + centerY,
+                            0
+                        );
+                    });
+
+                    // 创建填充的矩形 - 使用 ShapeGeometry
+                    const shape = new THREE.Shape(worldCorners.map(v => new THREE.Vector2(v.x, v.y)));
+                    const fillGeometry = new THREE.ShapeGeometry(shape);
+                    const fillMesh = new THREE.Mesh(fillGeometry, new THREE.MeshBasicMaterial({
+                        color: fillColor, // 使用修正后的颜色
+                        transparent: true,
+                        opacity: opacity,
+                        side: THREE.DoubleSide
+                    }));
+                    fillMesh.position.z = -0.01;
+                    fillMesh.name = `trajectory_fill_${index}`;
+
+                    // 创建线框 - 使用闭合的线
+                    const closedCorners = [...worldCorners, worldCorners[0]];
+                    const lineGeometry = new THREE.BufferGeometry().setFromPoints(closedCorners);
+                    const lineMesh = new THREE.Line(lineGeometry, new THREE.LineBasicMaterial({
+                        color: lineColor, // 使用修正后的颜色
+                        linewidth: lineWidth
+                    }));
+                    lineMesh.position.z = 0.02;
+                    lineMesh.name = `trajectory_line_${index}`;
+
+                    obj.add(fillMesh);
+                    obj.add(lineMesh);
+                });
+
                 break;
             }
+        }
+        // 只在有 material 的对象上检查最终状态
+        if (obj.material) {
+            console.log(`🔍 最终材质状态 - 颜色:`, obj.material.color, `透明度:`, obj.material.opacity, `是否透明:`, obj.material.transparent);
+        } else {
+            console.log(`🔍 最终状态 - obj没有material属性`);
         }
     }
 
@@ -2284,6 +2529,16 @@ class ObjectFactory {
         const data = cmd.getGeometryDataCase();
         const mat = cmd.getMaterial();
         let obj;
+        console.log(`🆕 创建2D对象，类型: ${data}, 材质填充: ${mat.getFilled()}`);
+
+        // 调试：检查材质对象的完整结构
+        console.log('🔍 材质对象:', mat);
+        console.log('🔍 材质对象方法:', Object.getOwnPropertyNames(mat).filter(name => name.startsWith('get') || name.startsWith('has')));
+
+        // 检查填充颜色相关方法
+        console.log('🔍 getFillColor:', typeof mat.getFillColor);
+        console.log('🔍 hasFillColor:', typeof mat.hasFillColor);
+
         switch (data) {
             case proto.visualization.Add2DObject.GeometryDataCase.POINT_2D: {
                 const geometry = new THREE.BufferGeometry();
@@ -2311,67 +2566,129 @@ class ObjectFactory {
                 break;
             }
             case proto.visualization.Add2DObject.GeometryDataCase.POLYGON: {
-                // 创建多边形 - 使用 ShapeGeometry 或 BufferGeometry
+                console.log(`🔍 POLYGON - 填充状态: ${mat.getFilled()}`);
+
                 const geometry = new THREE.BufferGeometry();
-                const color = mat.getColor();
                 const materialArgs = {
-                    color: new THREE.Color(color.getR(), color.getG(), color.getB()),
                     side: THREE.DoubleSide
                 };
 
                 if (mat.getFilled()) {
-                    const fillColor = mat.getFillColor();
-                    materialArgs.opacity = fillColor.getA();
-                    materialArgs.transparent = fillColor.getA() < 1.0;
+                    // 安全地获取填充颜色：先检查是否存在，再获取
+                    let fillColor;
+                    if (mat.hasFillColor && mat.hasFillColor()) {
+                        fillColor = mat.getFillColor();
+                        console.log(`🎨 POLYGON - 填充颜色:`, fillColor);
+                    } else {
+                        // 如果没有填充颜色，使用线条颜色作为填充颜色
+                        const color = mat.getColor();
+                        fillColor = color;
+                        console.log(`⚠️ POLYGON - 无填充颜色，使用线条颜色作为填充`);
+                    }
+
+                    materialArgs.color = new THREE.Color(fillColor.getR(), fillColor.getG(), fillColor.getB());
+
+                    // 安全地获取透明度
+                    if (fillColor && typeof fillColor.getA === 'function') {
+                        materialArgs.opacity = fillColor.getA();
+                        materialArgs.transparent = fillColor.getA() < 1.0;
+                    } else {
+                        materialArgs.opacity = 0.3; // 默认透明度
+                        materialArgs.transparent = true;
+                    }
+
                     obj = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial(materialArgs));
+                    obj.isMesh = true;
+                    console.log(`✅ 创建填充POLYGON Mesh, 颜色:`, materialArgs.color, `透明度:`, materialArgs.opacity);
                 } else {
+                    const color = mat.getColor();
+                    materialArgs.color = new THREE.Color(color.getR(), color.getG(), color.getB());
                     obj = new THREE.LineLoop(geometry, new THREE.LineBasicMaterial(materialArgs));
+                    obj.isMesh = false;
+                    console.log(`✅ 创建线框POLYGON LineLoop, 颜色:`, materialArgs.color);
                 }
                 break;
             }
             case proto.visualization.Add2DObject.GeometryDataCase.CIRCLE: {
-                // 创建圆形 - 使用圆形几何体
+                console.log(`🔍 CIRCLE - 填充状态: ${mat.getFilled()}`);
+
                 const geometry = new THREE.BufferGeometry();
-                const color = mat.getColor();
                 const materialArgs = {
-                    color: new THREE.Color(color.getR(), color.getG(), color.getB()),
                     side: THREE.DoubleSide
                 };
 
                 if (mat.getFilled()) {
-                    const fillColor = mat.getFillColor();
-                    materialArgs.opacity = fillColor.getA();
-                    materialArgs.transparent = fillColor.getA() < 1.0;
+                    let fillColor;
+                    if (mat.hasFillColor && mat.hasFillColor()) {
+                        fillColor = mat.getFillColor();
+                    } else {
+                        fillColor = mat.getColor();
+                    }
+
+                    materialArgs.color = new THREE.Color(fillColor.getR(), fillColor.getG(), fillColor.getB());
+
+                    if (fillColor && typeof fillColor.getA === 'function') {
+                        materialArgs.opacity = fillColor.getA();
+                        materialArgs.transparent = fillColor.getA() < 1.0;
+                    } else {
+                        materialArgs.opacity = 0.3;
+                        materialArgs.transparent = true;
+                    }
+
                     obj = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial(materialArgs));
+                    obj.isMesh = true;
+                    console.log(`✅ 创建填充CIRCLE Mesh, 颜色:`, materialArgs.color, `透明度:`, materialArgs.opacity);
                 } else {
+                    const color = mat.getColor();
+                    materialArgs.color = new THREE.Color(color.getR(), color.getG(), color.getB());
                     obj = new THREE.LineLoop(geometry, new THREE.LineBasicMaterial(materialArgs));
+                    obj.isMesh = false;
+                    console.log(`✅ 创建线框CIRCLE LineLoop, 颜色:`, materialArgs.color);
                 }
                 break;
             }
             case proto.visualization.Add2DObject.GeometryDataCase.BOX_2D: {
-                // 创建矩形 - 使用矩形几何体
+                console.log(`🔍 BOX_2D - 填充状态: ${mat.getFilled()}`);
+
                 const geometry = new THREE.BufferGeometry();
-                const color = mat.getColor();
                 const materialArgs = {
-                    color: new THREE.Color(color.getR(), color.getG(), color.getB()),
                     side: THREE.DoubleSide
                 };
 
                 if (mat.getFilled()) {
-                    const fillColor = mat.getFillColor();
-                    materialArgs.opacity = fillColor.getA();
-                    materialArgs.transparent = fillColor.getA() < 1.0;
+                    let fillColor;
+                    if (mat.hasFillColor && mat.hasFillColor()) {
+                        fillColor = mat.getFillColor();
+                    } else {
+                        fillColor = mat.getColor();
+                    }
+
+                    materialArgs.color = new THREE.Color(fillColor.getR(), fillColor.getG(), fillColor.getB());
+
+                    if (fillColor && typeof fillColor.getA === 'function') {
+                        materialArgs.opacity = fillColor.getA();
+                        materialArgs.transparent = fillColor.getA() < 1.0;
+                    } else {
+                        materialArgs.opacity = 0.3;
+                        materialArgs.transparent = true;
+                    }
+
                     obj = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial(materialArgs));
+                    obj.isMesh = true;
+                    console.log(`✅ 创建填充BOX_2D Mesh, 颜色:`, materialArgs.color, `透明度:`, materialArgs.opacity);
                 } else {
+                    const color = mat.getColor();
+                    materialArgs.color = new THREE.Color(color.getR(), color.getG(), color.getB());
                     obj = new THREE.LineLoop(geometry, new THREE.LineBasicMaterial(materialArgs));
+                    obj.isMesh = false;
+                    console.log(`✅ 创建线框BOX_2D LineLoop, 颜色:`, materialArgs.color);
                 }
                 break;
             }
             case proto.visualization.Add2DObject.GeometryDataCase.TRAJECTORY_2D: {
-                // 轨迹 - 使用线序列
-                const geometry = new THREE.BufferGeometry();
-                const material = this.createLineMaterial(mat);
-                obj = new THREE.Line(geometry, material);
+                // 修正：轨迹应该创建 Group 而不是 Line
+                obj = new THREE.Group();
+                obj.isMesh = false; // Group 本身不是 Mesh，但包含 Mesh 子对象
                 break;
             }
             default: {
