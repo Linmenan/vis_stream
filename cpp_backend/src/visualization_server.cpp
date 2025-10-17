@@ -141,11 +141,30 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
   using steady_timer = boost::asio::steady_timer;
 
   struct TrackedObject {
-    std::string id;  // 图元的UUID
-    std::weak_ptr<Vis::Observable> obj_ptr;
+    std::string id;                                   // 图元的UUID
+    std::weak_ptr<Vis::Observable> dynamic_obj_ptr;   // 用于动态元素
+    std::shared_ptr<Vis::Observable> static_obj_ptr;  // 用于静态元素
     bool is_3d;
     std::string window_uuid;  // 所在窗口的UUID
     visualization::Material material;
+    bool is_static;  // 新增：标识是否为静态元素
+
+    // 统一的获取对象方法
+    std::shared_ptr<Vis::Observable> get_object() const {
+      if (is_static) {
+        return static_obj_ptr;
+      } else {
+        return dynamic_obj_ptr.lock();
+      }
+    }
+    // 检查对象是否有效
+    bool is_valid() const {
+      if (is_static) {
+        return static_obj_ptr != nullptr;
+      } else {
+        return !dynamic_obj_ptr.expired();
+      }
+    }
   };
 
   struct WindowInfo {
@@ -258,7 +277,8 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     }
 
     // 2. 调用原有的、基于UUID的add方法
-    add_internal(obj, window_uuid, material, is_3d);
+    std::cout << "添加动态目标" << std::endl;
+    add_internal(obj, window_uuid, material, is_3d, false);
   }
 
   // (const Vis::Observable& 版本)
@@ -272,17 +292,23 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     }
 
     // 克隆对象并调用基于UUID的add方法
+    std::cout << "添加静态目标" << std::endl;
     auto obj_copy = clone_to_shared(obj);
     if (obj_copy) {
-      add_internal(obj_copy, window_uuid, material, is_3d);
+      add_internal(obj_copy, window_uuid, material, is_3d, true);
     }
   }
+
   void add_internal(std::shared_ptr<Vis::Observable> obj,
                     const std::string& window_uuid,
-                    const visualization::Material& material, bool is_3d) {
+                    const visualization::Material& material, bool is_3d,
+                    bool is_static) {
     if (!obj) return;
     std::lock_guard<std::mutex> lock(m_mutex);
-    cleanup_expired_objects();
+    // 注意：静态元素不参与 cleanup_expired_objects
+    if (!is_static) {
+      cleanup_expired_objects();
+    }
 
     // 获取窗口名称
     std::string window_name = "";
@@ -294,16 +320,21 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
 
     TrackedObject tracked;
     tracked.id = object_id;
-    tracked.obj_ptr = obj;
     tracked.is_3d = is_3d;
     tracked.window_uuid = window_uuid;  //
     tracked.material = material;
-
+    tracked.is_static = is_static;
+    if (is_static) {
+      tracked.static_obj_ptr = obj;     // 静态元素：永久持有
+      tracked.dynamic_obj_ptr.reset();  // 清空动态指针
+    } else {
+      tracked.dynamic_obj_ptr = obj;   // 动态元素：使用 weak_ptr
+      tracked.static_obj_ptr.reset();  // 清空静态指针
+      obj->set_observer(this);         // 只有动态元素需要观察者
+    }
     m_tracked_objects[object_id] = tracked;
     m_object_ptr_to_id[obj.get()] = object_id;
     m_window_objects[window_uuid].insert(object_id);  //
-
-    obj->set_observer(this);  //
 
     if (is_3d) {
       visualization::Scene3DUpdate scene_update;
@@ -327,6 +358,8 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
   }
 
   void clear_static(const std::string& window_name, bool is_3d) {
+    std::cout << "外部调用清除静态对象 - 窗口名称: " << window_name
+              << std::endl;
     std::lock_guard<std::mutex> lock(m_mutex);
     cleanup_expired_objects();
 
@@ -348,10 +381,9 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     std::vector<std::string> to_remove;
     for (const auto& object_id : it->second) {
       auto tracked_it = m_tracked_objects.find(object_id);
-      if (tracked_it != m_tracked_objects.end()) {
-        if (tracked_it->second.obj_ptr.expired()) {
-          to_remove.push_back(object_id);
-        }
+      if (tracked_it != m_tracked_objects.end() &&
+          tracked_it->second.is_static) {
+        to_remove.push_back(object_id);
       }
     }
 
@@ -364,12 +396,11 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
   }
 
   void clear_dynamic(const std::string& window_name, bool is_3d) {
+    std::cout << "外部调用清除动态对象 - 窗口名称: " << window_name
+              << std::endl;
     (void)is_3d;
     std::lock_guard<std::mutex> lock(m_mutex);
     cleanup_expired_objects();
-
-    // std::cout << "🔍 开始清除动态对象 - 窗口名称: " << window_name <<
-    // std::endl;
 
     // 将窗口名称转换为UUID
     std::string window_uuid = get_uuid_for_name(window_name, is_3d);
@@ -391,17 +422,9 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     std::vector<std::string> to_remove;
     for (const auto& object_id : it->second) {
       auto tracked_it = m_tracked_objects.find(object_id);
-      if (tracked_it == m_tracked_objects.end()) {
-        continue;
-      }
-
-      const auto& tracked = tracked_it->second;
-      auto obj = tracked.obj_ptr.lock();
-      if (obj) {
-        // std::cout << "🗑️ 标记要删除的动态对象: " << object_id << std::endl;
+      if (tracked_it != m_tracked_objects.end() &&
+          !tracked_it->second.is_static) {
         to_remove.push_back(object_id);
-      } else {
-        std::cout << "⚠️ 对象已过期: " << object_id << std::endl;
       }
     }
 
@@ -441,6 +464,7 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     if (tracked_it == m_tracked_objects.end()) return;
 
     const auto& tracked = tracked_it->second;
+    if (!tracked.is_valid()) return;
 
     if (tracked.is_3d) {
       m_dirty_objects_3d[tracked.window_uuid].insert(object_id);
@@ -596,10 +620,19 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       return false;
     }
 
-    send_window_delete_command(uuid, is_3d);
+    // 1. 先清理本地数据
     clear_unlocked(uuid);
+
+    // 2. 清理脏对象集合
+    m_dirty_objects_2d.erase(uuid);
+    m_dirty_objects_3d.erase(uuid);
+
+    // 3. 移除窗口映射
     m_windows.erase(uuid);
     m_window_name_to_uuid.erase(it);
+
+    // 4. 最后发送删除命令到前端
+    send_window_delete_command(uuid, is_3d);
 
     std::cout << "🗑️ 删除窗口: 名称=" << name << ", UUID=" << uuid << std::endl;
     return true;
@@ -693,7 +726,6 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
   std::unordered_map<std::string, std::string> m_window_name_to_uuid;
   std::unordered_map<std::string, WindowInfo> m_windows;
   std::atomic<size_t> m_next_window_index{0};
-
   bool m_auto_update_enabled;
   int m_update_threshold;
   int m_update_interval;
@@ -712,6 +744,13 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
   }
   // 内部不加锁的清除方法
   void clear_unlocked(const std::string& window_uuid) {
+    std::cout << "清空窗口 " << window_uuid << " 中的对象" << std::endl;
+    // 安全检查：如果窗口已不存在，跳过清理
+    if (m_windows.find(window_uuid) == m_windows.end()) {
+      std::cout << "⚠️ 窗口 " << window_uuid << " 已不存在，跳过清空"
+                << std::endl;
+      return;
+    }
     cleanup_expired_objects();
 
     auto it = m_window_objects.find(window_uuid);
@@ -736,10 +775,12 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
   }
 
   void cleanup_expired_objects() {
+    std::cout << "删除过期对象 " << std::endl;
     std::vector<std::string> expired_ids;
 
     for (const auto& [object_id, tracked] : m_tracked_objects) {
-      if (tracked.obj_ptr.expired()) {
+      // 只清理动态元素，静态元素不参与自动清理
+      if (!tracked.is_static && !tracked.is_valid()) {
         expired_ids.push_back(object_id);
       }
     }
@@ -750,16 +791,28 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
   }
 
   void remove_object_internal(const std::string& object_id) {
+    std::cout << "删除对象: " << object_id << std::endl;
     auto it = m_tracked_objects.find(object_id);
     if (it == m_tracked_objects.end()) return;
 
     const auto& tracked = it->second;
 
-    if (auto obj = tracked.obj_ptr.lock()) {
-      obj->set_observer(nullptr);
-      m_object_ptr_to_id.erase(obj.get());
+    // 根据元素类型进行不同的清理
+    if (tracked.is_static) {
+      // 静态元素：直接清理 shared_ptr
+      if (tracked.static_obj_ptr) {
+        tracked.static_obj_ptr->set_observer(nullptr);
+        m_object_ptr_to_id.erase(tracked.static_obj_ptr.get());
+      }
+    } else {
+      // 动态元素：清理 weak_ptr 和观察者
+      if (auto obj = tracked.dynamic_obj_ptr.lock()) {
+        obj->set_observer(nullptr);
+        m_object_ptr_to_id.erase(obj.get());
+      }
     }
 
+    // 清理窗口对象集合
     m_window_objects[tracked.window_uuid].erase(object_id);
 
     if (tracked.is_3d) {
@@ -768,13 +821,13 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       m_dirty_objects_2d[tracked.window_uuid].erase(object_id);
     }
 
-    // 这里直接使用 tracked.window_uuid，不需要再次查找
+    // 获取窗口名称用于发送消息
     std::string window_name = "";
     auto window_it = m_windows.find(tracked.window_uuid);
     if (window_it != m_windows.end()) {
       window_name = window_it->second.display_name;
     }
-
+    // 发送删除命令到前端
     if (tracked.is_3d) {
       visualization::Scene3DUpdate u;
       u.set_window_id(tracked.window_uuid);  // 直接使用窗口UUID
@@ -817,7 +870,9 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       if (it == m_tracked_objects.end()) continue;
 
       const auto& tracked = it->second;
-      auto obj = tracked.obj_ptr.lock();
+
+      if (!tracked.is_valid()) continue;
+      auto obj = tracked.get_object();
       if (!obj) continue;
 
       auto* update_geom =
@@ -858,7 +913,9 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       if (it == m_tracked_objects.end()) continue;
 
       const auto& tracked = it->second;
-      auto obj = tracked.obj_ptr.lock();
+
+      if (!tracked.is_valid()) continue;
+      auto obj = tracked.get_object();
       if (!obj) continue;
 
       auto* update_geom =
@@ -1044,9 +1101,11 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       if (tracked_it == m_tracked_objects.end()) continue;
 
       const auto& tracked = tracked_it->second;
-      auto obj = tracked.obj_ptr.lock();
+      // 使用新的有效性检查方法
+      if (!tracked.is_valid()) continue;
+      // 使用统一的获取对象方法
+      auto obj = tracked.get_object();
       if (!obj) continue;
-
       if (is_3d) {
         visualization::Scene3DUpdate scene_update;
         scene_update.set_window_id(window_uuid);
