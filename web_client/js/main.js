@@ -358,7 +358,7 @@ class Plotter3D extends BasePlotter {
                     this.sceneObjects.set(cmd.getId(), obj);
                     this.scene.add(obj);
                     // 添加图例
-                    this.updateLegend(cmd.getId(), cmd.getMaterial());
+                    this.updateLegend(cmd.getId(), cmd);
                 }
                 break;
             }
@@ -370,7 +370,9 @@ class Plotter3D extends BasePlotter {
                 break;
             }
             case proto.visualization.Command3D.CommandTypeCase.DELETE_OBJECT:
-                this.removeObject(command.getDeleteObject().getId());
+                const id_to_delete_3d = command.getDeleteObject().getId();
+                this.removeObject(id_to_delete_3d);
+                this.updateLegend(id_to_delete_3d, null);
                 break;
             case proto.visualization.Command3D.CommandTypeCase.SET_GRID_VISIBLE:
                 this.gridHelper.visible = command.getSetGridVisible().getVisible();
@@ -401,16 +403,16 @@ class Plotter3D extends BasePlotter {
     /**
          * 更新3D窗口图例
          */
-    updateLegend(id, material) {
+    updateLegend(id, cmd) {
         // console.log(`📝 更新3D图例: ${id}`);
-
-        if (!material) { // 对应对象删除
+        if (!cmd) { // 对应对象删除
             if (this.legendElements.has(id)) {
                 this.legendElements.get(id).remove();
                 this.legendElements.delete(id);
             }
             return;
         }
+        const material = cmd.getMaterial();
 
         const legendText = material.getLegend();
         if (!legendText) return;
@@ -509,7 +511,14 @@ class CoordinateSystem {
 
     // 获取世界边界（基于正交相机原理）
     getWorldBounds(camera, controls = null) {
+        // 确保相机矩阵是更新的
+        // 在Plotter2D的animate循环中，controls.update()会更新相机矩阵
+        // camera.updateMatrixWorld(); // 通常不需要，但如果遇到问题可以尝试
+        // camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+
+        // 验证相机类型
         if (!camera.isOrthographicCamera) {
+            console.warn("getWorldBounds: 非正交相机");
             return this.getDefaultBounds();
         }
 
@@ -518,27 +527,54 @@ class CoordinateSystem {
             return this.getDefaultBounds();
         }
 
-        // 计算缩放后的相机边界
-        const scaledLeft = camera.left / zoom;
-        const scaledRight = camera.right / zoom;
-        const scaledBottom = camera.bottom / zoom;
-        const scaledTop = camera.top / zoom;
+        // 1. 反投影屏幕的左上角 (0, 0)
+        const topLeftWorld = this.screenToWorld(0, 0, camera, controls);
 
-        // 应用目标点偏移
-        let targetX = 0, targetY = 0;
-        if (controls && controls.target) {
-            targetX = controls.target.x;
-            targetY = controls.target.y;
-        }
+        // 2. 反投影屏幕的右下角 (width, height)
+        const bottomRightWorld = this.screenToWorld(this.canvasWidth, this.canvasHeight, camera, controls);
 
+        // 3. 构建边界
+        // 注意：screenToWorld 已经处理了Y轴翻转
         const bounds = {
-            left: scaledLeft + targetX,
-            right: scaledRight + targetX,
-            bottom: scaledBottom + targetY,
-            top: scaledTop + targetY
+            left: topLeftWorld.x,
+            right: bottomRightWorld.x,
+            bottom: bottomRightWorld.y,
+            top: topLeftWorld.y
         };
 
+        // 4. 使用您原有的验证逻辑
         return this.validateAndFixBounds(bounds);
+
+        // if (!camera.isOrthographicCamera) {
+        //     return this.getDefaultBounds();
+        // }
+
+        // const zoom = camera.zoom;
+        // if (zoom <= 0 || !isFinite(zoom)) {
+        //     return this.getDefaultBounds();
+        // }
+
+        // // 计算缩放后的相机边界
+        // const scaledLeft = camera.left / zoom;
+        // const scaledRight = camera.right / zoom;
+        // const scaledBottom = camera.bottom / zoom;
+        // const scaledTop = camera.top / zoom;
+
+        // // 应用目标点偏移
+        // let targetX = 0, targetY = 0;
+        // if (controls && controls.target) {
+        //     targetX = controls.target.x;
+        //     targetY = controls.target.y;
+        // }
+
+        // const bounds = {
+        //     left: scaledLeft + targetX,
+        //     right: scaledRight + targetX,
+        //     bottom: scaledBottom + targetY,
+        //     top: scaledTop + targetY
+        // };
+
+        // return this.validateAndFixBounds(bounds);
     }
     validateBounds(bounds) {
         return isFinite(bounds.left) && isFinite(bounds.right) &&
@@ -599,29 +635,59 @@ class CoordinateSystem {
     }
     // 屏幕坐标转世界坐标
     screenToWorld(screenX, screenY, camera, controls = null) {
-        const worldBounds = this.getWorldBounds(camera, controls);
-        // 归一化屏幕坐标 (0到1)
-        const normalizedX = screenX / this.canvasWidth;
-        const normalizedY = 1 - (screenY / this.canvasHeight); // Y轴翻转
+        // 1. 将屏幕像素坐标 [0, canvasSize] 转换回 NDC坐标 [-1, 1]
+        const ndcX = (screenX / this.canvasWidth) * 2 - 1;
+        const ndcY = -(screenY / this.canvasHeight) * 2 + 1; // Y轴翻转
+
+        // 2. 创建一个向量（Z=-1，指向近裁剪平面）
+        const vector = new THREE.Vector3(ndcX, ndcY, -1);
+
+        // 3. 使用相机的逆矩阵将其“反投影”回世界坐标
+        vector.unproject(camera);
 
         return {
-            x: worldBounds.left + normalizedX * (worldBounds.right - worldBounds.left),
-            y: worldBounds.bottom + normalizedY * (worldBounds.top - worldBounds.bottom)
+            x: vector.x,
+            y: vector.y
         };
+        // const worldBounds = this.getWorldBounds(camera, controls);
+        // // 归一化屏幕坐标 (0到1)
+        // const normalizedX = screenX / this.canvasWidth;
+        // const normalizedY = 1 - (screenY / this.canvasHeight); // Y轴翻转
+
+        // return {
+        //     x: worldBounds.left + normalizedX * (worldBounds.right - worldBounds.left),
+        //     y: worldBounds.bottom + normalizedY * (worldBounds.top - worldBounds.bottom)
+        // };
     }
 
     // 世界坐标转屏幕坐标
     worldToScreen(worldX, worldY, camera, controls = null) {
-        const worldBounds = this.getWorldBounds(camera, controls);
+        // 1. 创建一个三维向量（Z=0，因为是2D）
+        const vector = new THREE.Vector3(worldX, worldY, 0);
 
-        // 归一化世界坐标
-        const normalizedX = (worldX - worldBounds.left) / (worldBounds.right - worldBounds.left);
-        const normalizedY = (worldY - worldBounds.bottom) / (worldBounds.top - worldBounds.bottom);
+        // 2. 使用相机的矩阵将其投影到“归一化设备坐标”(NDC) [-1, 1]
+        // 这一步同时完成了视图变换(平移)和投影变换(缩放)
+        // 必须确保相机矩阵在调用前是更新的（在Plotter2D的animate循环中会更新）
+        vector.project(camera);
+
+        // 3. 将NDC坐标 [-1, 1] 转换为屏幕像素坐标 [0, canvasSize]
+        const screenX = (vector.x + 1) * 0.5 * this.canvasWidth;
+        const screenY = (-vector.y + 1) * 0.5 * this.canvasHeight; // Y轴翻转
 
         return {
-            x: normalizedX * this.canvasWidth,
-            y: (1 - normalizedY) * this.canvasHeight // Y轴翻转
+            x: screenX,
+            y: screenY
         };
+        // const worldBounds = this.getWorldBounds(camera, controls);
+
+        // // 归一化世界坐标
+        // const normalizedX = (worldX - worldBounds.left) / (worldBounds.right - worldBounds.left);
+        // const normalizedY = (worldY - worldBounds.bottom) / (worldBounds.top - worldBounds.bottom);
+
+        // return {
+        //     x: normalizedX * this.canvasWidth,
+        //     y: (1 - normalizedY) * this.canvasHeight // Y轴翻转
+        // };
     }
 
     // 适应数据边界
@@ -1626,7 +1692,7 @@ class Plotter2D extends BasePlotter {
                     obj.name = cmd.getId();
                     this.sceneObjects.set(cmd.getId(), obj);
                     this.scene.add(obj);
-                    this.updateLegend(cmd.getId(), cmd.getMaterial());
+                    this.updateLegend(cmd.getId(), cmd);
                 }
                 break;
             }
@@ -1699,10 +1765,32 @@ class Plotter2D extends BasePlotter {
         this.isDynamicFitEnabled = false;
         this.controls.enabled = true;
     }
-    updateLegend(id, material) {
-        console.log(`🧹 开始销毁图元图例id: ${id} `);
+    _getProtoColor(protoColor, defaultAlpha = 1.0) {
+        if (!protoColor) {
+            // 提供一个安全的默认值
+            return { hex: '#888888', rgba: 'rgba(136, 136, 136, 1.0)', alpha: 1.0 };
+        }
 
-        if (!material) { // Corresponds to object deletion
+        const r = (protoColor.getR() * 255).toFixed(0);
+        const g = (protoColor.getG() * 255).toFixed(0);
+        const b = (protoColor.getB() * 255).toFixed(0);
+
+        // 检查 protoColor 对象上是否存在 getA 方法
+        const alpha = (typeof protoColor.getA === 'function') ? protoColor.getA() : defaultAlpha;
+
+        const hex = new THREE.Color(protoColor.getR(), protoColor.getG(), protoColor.getB()).getHexString();
+
+        return {
+            hex: `#${hex}`,
+            rgba: `rgba(${r}, ${g}, ${b}, ${alpha})`,
+            alpha: alpha
+        };
+    }
+    updateLegend(id, cmd) {
+        console.log(`🧹 更新2D图例 id: ${id} `);
+
+        // 1. 处理删除 (cmd 为 null)
+        if (!cmd) { // Corresponds to object deletion
             if (this.legendElements.has(id)) {
                 this.legendElements.get(id).remove();
                 this.legendElements.delete(id);
@@ -1710,9 +1798,14 @@ class Plotter2D extends BasePlotter {
             return;
         }
 
+        // 2. 获取材质和图例文本
+        const material = cmd.getMaterial();
         const legendText = material.getLegend();
+
+        // 如果没有图例文字，则不显示
         if (!legendText) return;
 
+        // 3. 查找或创建 DOM 元素
         let legendItem = this.legendElements.get(id);
         if (!legendItem) {
             legendItem = document.createElement('div');
@@ -1721,12 +1814,108 @@ class Plotter2D extends BasePlotter {
             this.legendElements.set(id, legendItem);
         }
 
-        const color = material.getColor();
-        const colorHex = new THREE.Color(color.getR(), color.getG(), color.getB()).getHexString();
+        // --- 4. 核心改动：生成SVG图标 ---
+        const geomType = cmd.getGeometryDataCase();
+        const primaryColor = this._getProtoColor(material.getColor());
+        let fillColor = 'none';
+        let strokeColor = primaryColor.hex;
 
+        // 检查是否填充
+        if (material.getFilled()) {
+            // 如果填充，使用fillColor（如果存在），否则使用primaryColor
+            const fillProto = (material.hasFillColor && material.hasFillColor())
+                ? material.getFillColor()
+                : material.getColor();
+
+            // 如果getA不存在，给一个默认的半透明度
+            const defaultAlpha = (material.hasFillColor && material.hasFillColor()) ? 1.0 : 0.5;
+            const fill = this._getProtoColor(fillProto, defaultAlpha);
+            fillColor = fill.rgba;
+        }
+        // 获取线型
+        let strokeDasharray = '';
+        if (material.getLineStyle && material.getLineStyle() === proto.visualization.Material.LineStyle.DASHED) {
+            strokeDasharray = '3 2'; // SVG的虚线样式
+        }
+        // SVG 图标的视口
+        let iconHtml = `<svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" class="legend-icon">`;
+        // 根据几何类型生成不同的 SVG 形状
+        switch (geomType) {
+            case proto.visualization.Add2DObject.GeometryDataCase.LINE_2D:
+            case proto.visualization.Add2DObject.GeometryDataCase.TRAJECTORY_2D:
+                iconHtml += `<line x1="2" y1="10" x2="18" y2="10" 
+                                  stroke="${strokeColor}" 
+                                  stroke-width="2" 
+                                  stroke-dasharray="${strokeDasharray}" />`;
+                break;
+
+            case proto.visualization.Add2DObject.GeometryDataCase.POLYGON:
+                // Polygon 使用一个五边形
+                iconHtml += `<polygon points="10,2 18,8 15,18 5,18 2,8"
+                                  fill="${fillColor}" 
+                                  stroke="${strokeColor}" 
+                                  stroke-width="2" 
+                                  stroke-dasharray="${strokeDasharray}" />`;
+                break;
+            case proto.visualization.Add2DObject.GeometryDataCase.BOX_2D:
+                iconHtml += `<rect x="3" y="3" width="14" height="14" 
+                                  fill="${fillColor}" 
+                                  stroke="${strokeColor}" 
+                                  stroke-width="2" 
+                                  stroke-dasharray="${strokeDasharray}" />`;
+                break;
+
+            case proto.visualization.Add2DObject.GeometryDataCase.CIRCLE:
+                iconHtml += `<circle cx="10" cy="10" r="7" 
+                                  fill="${fillColor}" 
+                                  stroke="${strokeColor}" 
+                                  stroke-width="2" 
+                                  stroke-dasharray="${strokeDasharray}" />`;
+                break;
+
+            case proto.visualization.Add2DObject.GeometryDataCase.POSE_2D:
+                // 绘制一个简单的箭头
+                iconHtml += `<path d="M 2 10 L 18 10 M 12 5 L 18 10 L 12 15" 
+                                  fill="none" 
+                                  stroke="${strokeColor}" 
+                                  stroke-width="2" />`;
+                break;
+
+            case proto.visualization.Add2DObject.GeometryDataCase.POINT_2D:
+                const pointShape = material.getPointShape();
+                switch (pointShape) {
+                    case proto.visualization.Material.PointShape.CROSS:
+                        iconHtml += `<path d="M 4 4 L 16 16 M 16 4 L 4 16" 
+                                          fill="none" 
+                                          stroke="${strokeColor}" 
+                                          stroke-width="2" />`;
+                        break;
+                    case proto.visualization.Material.PointShape.DIAMOND:
+                        iconHtml += `<path d="M 10 2 L 18 10 L 10 18 L 2 10 Z" 
+                                          fill="${strokeColor}" />`;
+                        break;
+                    case proto.visualization.Material.PointShape.SQUARE:
+                        iconHtml += `<rect x="4" y="4" width="12" height="12" 
+                                          fill="${strokeColor}" />`;
+                        break;
+                    case proto.visualization.Material.PointShape.CIRCLE:
+                    default:
+                        iconHtml += `<circle cx="10" cy="10" r="6" 
+                                          fill="${strokeColor}" />`;
+                        break;
+                }
+                break;
+
+            default:
+                // 默认图标（回退到原来的方块）
+                iconHtml += `<rect x="3" y="3" width="14" height="14" fill="${primaryColor.hex}" />`;
+        }
+        iconHtml += `</svg>`;
+
+        // 5. 更新 innerHTML
         legendItem.innerHTML = `
-            <span class="legend-color-swatch" style="background-color: #${colorHex};"></span>
-            <span class="legend-label">${legendText}</span>
+            ${iconHtml}
+             <span class="legend-label">${legendText}</span>
         `;
     }
     destroy() {
