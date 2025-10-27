@@ -195,7 +195,7 @@ html {
 /* 3D图例项特殊样式 */
 .plot-window-3d .legend-item {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     padding: 6px 10px;
     border-radius: 4px;
@@ -232,11 +232,15 @@ html {
 
 .plot-window-3d .legend-label {
     color: #333;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    word-break: break-all;
+    /* 允许长单词在任意位置换行 */
     font-size: 0.85em;
     font-weight: 500;
+    min-width: 0;
+    /* 关键：允许 flex 项在容器内收缩和换行 */
+    flex-shrink: 1;
+    /* 确保标签可以收缩 */
 }
 
 /* 3D图例滚动条 */
@@ -396,7 +400,7 @@ html {
 /* 图例项 */
 .legend-item {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     padding: 4px 8px;
     border-radius: 3px;
@@ -418,10 +422,14 @@ html {
 
 .legend-label {
     color: #333;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    word-break: break-all;
+    /* 允许长单词在任意位置换行 */
     font-size: 0.85em;
+    min-width: 0;
+    /* 关键：允许 flex 项在容器内收缩和换行 */
+    flex-shrink: 1;
+    /* 确保标签可以收缩 */
 }
 
 /* 滚动条样式 */

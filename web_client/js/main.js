@@ -199,8 +199,145 @@ class BasePlotter {
         this.sceneObjects = new Map();
         this.factory = new ObjectFactory();
         window.addEventListener('resize', this.onWindowResize, false);
+        this.highlightedObjectId = null; // 跟踪当前高亮的对象ID
+        this.highlightInterval = null;   // 跟踪闪烁的定时器
+        // 存储高亮前的原始材质状态
+        this.originalMaterialState = null;
+        // 存储高亮前的原始渲染顺序 (主要用于2D)
+        this.originalRenderOrder = 0;
+        // 定义用于存储动态计算的高亮色
+        this.dynamicHighlightColor = null;
+    }
+    /**
+     * 根据物体的原始颜色计算一个高对比度的高亮色
+     * @param {THREE.Color} originalColor 
+     * @returns {THREE.Color}
+     */
+    calculateHighlightColor(originalColor) {
+        const hsl = { h: 0, s: 0, l: 0 };
+        originalColor.getHSL(hsl);
+
+        // 规则 2: 如果原始颜色很暗 (Lightness < 10%)，则使用亮黄色
+        if (hsl.l < 0.1) {
+            return new THREE.Color(0xFFFF00); // 亮黄色
+        }
+
+        // 规则 1: 计算互补色
+        // HSL 色相 (Hue) 范围是 [0, 1]
+        // 互补色 = (当前色相 + 0.5) % 1.0
+        const complementaryHue = (hsl.h + 0.5) % 1.0;
+
+        // 为了确保高亮足够显眼，我们强制使用高饱和度和中高亮度
+        const highlightSaturation = 1.0;
+        const highlightLightness = 0.6; // 60% 亮度，避免过曝或太暗
+
+        return new THREE.Color().setHSL(
+            complementaryHue,
+            highlightSaturation,
+            highlightLightness
+        );
+    }
+    /**
+     * 保存对象的原始材质颜色和渲染顺序
+     */
+    saveOriginalMaterial(obj) {
+        this.originalMaterialState = [];
+        let foundFirstColor = false; // 标记是否已找到颜色
+        // 1. 保存材质
+        // 1. 遍历并保存材质
+        obj.traverse((child) => {
+            if (child.material) {
+                const materials = Array.isArray(child.material) ? child.material : [child.material];
+                materials.forEach(mat => {
+                    // 只处理有颜色属性的材质
+                    if (mat.color) {
+
+                        // --- 新增逻辑: 计算高亮色 ---
+                        if (!foundFirstColor) {
+                            // 使用找到的第一个材质颜色作为基准
+                            this.dynamicHighlightColor = this.calculateHighlightColor(mat.color);
+                            foundFirstColor = true;
+                        }
+                        // --- 结束新增 ---
+
+                        this.originalMaterialState.push({
+                            material: mat,
+                            color: mat.color.clone()
+                        });
+                    }
+                });
+            }
+        });
+        // (例如对象是一个没有材质的 Group)
+        if (!foundFirstColor) {
+            this.dynamicHighlightColor = new THREE.Color(0xFFFF00); // 默认亮黄色
+        }
+        // 2. 保存渲染顺序 (用于2D) 并提升
+        if (this.type === '2D') {
+            this.originalRenderOrder = obj.renderOrder;
+            obj.renderOrder = 1000; // 提升到顶层
+        }
     }
 
+    /**
+     * 应用高亮材质（闪烁时调用）
+     */
+    applyHighlightMaterial(obj) {
+        if (!this.dynamicHighlightColor) {
+            console.warn("高亮失败: 未设置 dynamicHighlightColor");
+            // 紧急回退
+            this.dynamicHighlightColor = new THREE.Color(0xFFFF00);
+        }
+        obj.traverse((child) => {
+            if (child.material) {
+                const materials = Array.isArray(child.material) ? child.material : [child.material];
+                materials.forEach(mat => {
+                    if (mat.color) {
+                        mat.color.set(this.dynamicHighlightColor);
+                    }
+                    // 3D 材质特殊处理：添加自发光
+                    if (this.type === '3D' && mat.isMeshStandardMaterial) {
+                        mat.emissive = this.dynamicHighlightColor;
+                        mat.emissiveIntensity = 0.5;
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * 恢复对象的原始材质和渲染顺序
+     */
+    restoreOriginalMaterial(obj) {
+        if (!obj || !this.originalMaterialState) return;
+
+        // 1. 恢复材质
+        this.originalMaterialState.forEach(state => {
+            if (state.material && state.material.color) {
+                state.material.color.copy(state.color);
+            }
+        });
+
+        // 2. 恢复3D材质的自发光
+        if (this.type === '3D') {
+            obj.traverse((child) => {
+                if (child.material) {
+                    const materials = Array.isArray(child.material) ? child.material : [child.material];
+                    materials.forEach(mat => {
+                        if (mat.isMeshStandardMaterial) {
+                            mat.emissive.set(0x000000);
+                            mat.emissiveIntensity = 0;
+                        }
+                    });
+                }
+            });
+        }
+
+        // 3. 恢复2D渲染顺序
+        if (this.type === '2D') {
+            obj.renderOrder = this.originalRenderOrder;
+        }
+    }
     animate = () => {
         this.animationFrameId = requestAnimationFrame(this.animate);
         this.controls.update();
@@ -209,6 +346,10 @@ class BasePlotter {
 
     removeObject(objectId) {
         console.log(`🧹 开始销毁图元id: ${objectId} `);
+        if (objectId === this.highlightedObjectId) {
+            this.clearHighlight();
+            this.highlightedObjectId = null;
+        }
         if (this.sceneObjects.has(objectId)) {
             const obj = this.sceneObjects.get(objectId);
             this.scene.remove(obj);
@@ -263,6 +404,84 @@ class BasePlotter {
     }
     onDisconnect() {
         // console.log(`${this.type} Plotter is now in static mode (disconnected).`);
+    }
+    onLegendClick = (id) => {
+        const isAlreadyHighlighted = (this.highlightedObjectId === id);
+
+        // 无论如何，先清除当前的高亮效果
+        this.clearHighlight();
+
+        if (isAlreadyHighlighted) {
+            // 如果点击的是已高亮的对象，则取消高亮
+            this.highlightedObjectId = null;
+            return;
+        }
+        // 如果点击的是新对象，则开始高亮
+        this.highlightedObjectId = id;
+        const obj = this.sceneObjects.get(id);
+        if (!obj) {
+            console.warn("未找到要高亮的对象:", id);
+            return;
+        }
+
+        // 3. 保存原始状态（材质和2D层级）
+        this.saveOriginalMaterial(obj);
+
+        // 4. 开始颜色闪烁
+        let isHighlighted = true;
+        // 立即应用一次高亮，避免延迟
+        this.applyHighlightMaterial(obj);
+
+        this.highlightInterval = setInterval(() => {
+            // 检查对象是否仍然存在
+            const currentObj = this.sceneObjects.get(this.highlightedObjectId);
+            if (!currentObj) {
+                this.clearHighlight(); // 对象可能被删除了
+                return;
+            }
+
+            if (isHighlighted) {
+                // 在高亮状态 -> 恢复原始状态
+                this.restoreOriginalMaterial(currentObj);
+                // 关键：对于2D，恢复原始颜色后，仍要保持顶层渲染
+                if (this.type === '2D') {
+                    currentObj.renderOrder = 1000;
+                }
+            } else {
+                // 在原始状态 -> 应用高亮
+                this.applyHighlightMaterial(currentObj);
+            }
+            isHighlighted = !isHighlighted;
+        }, 400); // 每400ms切换一次颜色
+
+    }
+    /**
+     * 彻底清除高亮状态和定时器
+    */
+    clearHighlight = () => {
+        // 1. 停止定时器
+        if (this.highlightInterval) {
+            clearInterval(this.highlightInterval);
+            this.highlightInterval = null;
+        }
+
+        // 2. 恢复高亮对象的原始材质
+        if (this.highlightedObjectId) {
+            const obj = this.sceneObjects.get(this.highlightedObjectId);
+            if (obj) {
+                // 确保对象可见（以防万一是从旧的闪烁逻辑残留的）
+                obj.visible = true;
+                // 恢复材质和renderOrder
+                this.restoreOriginalMaterial(obj);
+            }
+        }
+
+        // 3. 清理状态
+        // 状态应该在这里被清空，而不是在 restoreOriginalMaterial 中
+        this.highlightedObjectId = null;
+        this.originalMaterialState = null;
+        this.originalRenderOrder = 0;
+        this.dynamicHighlightColor = null; // 清除动态颜色
     }
 }
 
@@ -405,33 +624,58 @@ class Plotter3D extends BasePlotter {
          */
     updateLegend(id, cmd) {
         // console.log(`📝 更新3D图例: ${id}`);
-        if (!cmd) { // 对应对象删除
+
+        // 1. 获取数据
+        const material = cmd ? cmd.getMaterial() : null;
+        const legendText = material ? material.getLegend() : null;
+
+        // 2. 处理删除 (或没有图例文字的对象)
+        if (!cmd || !legendText) {
             if (this.legendElements.has(id)) {
-                this.legendElements.get(id).remove();
-                this.legendElements.delete(id);
+                this.legendElements.get(id).element.remove(); // 从DOM移除
+                this.legendElements.delete(id); // 从Map移除
             }
-            return;
-        }
-        const material = cmd.getMaterial();
-
-        const legendText = material.getLegend();
-        if (!legendText) return;
-
-        let legendItem = this.legendElements.get(id);
-        if (!legendItem) {
-            legendItem = document.createElement('div');
-            legendItem.className = 'legend-item';
-            this.legendContainer.appendChild(legendItem);
-            this.legendElements.set(id, legendItem);
+            return; // 完成删除，退出
         }
 
+        // 3. 处理添加/更新
+        let legendItemData = this.legendElements.get(id);
+
+        if (!legendItemData) {
+            // 如果是新图例
+            const element = document.createElement('div');
+            element.className = 'legend-item';
+            element.addEventListener('click', () => this.onLegendClick(id));
+
+            // 存储元素和用于排序的文本
+            legendItemData = { element: element, text: legendText };
+            this.legendElements.set(id, legendItemData);
+        } else {
+            // 如果是更新，只需更新排序文本
+            legendItemData.text = legendText;
+        }
+
+        // 4. 更新 DOM 元素的内容 (您原有的逻辑)
         const color = material.getColor();
         const colorHex = new THREE.Color(color.getR(), color.getG(), color.getB()).getHexString();
-
-        legendItem.innerHTML = `
+        legendItemData.element.innerHTML = `
             <span class="legend-color-swatch" style="background-color: #${colorHex};"></span>
             <span class="legend-label">${legendText}</span>
         `;
+
+        // 5. 【修复】按图例文字排序并重新追加到DOM
+
+        // 从Map中获取所有图例项
+        const itemsArray = Array.from(this.legendElements.values());
+
+        // 关键：按 'text' 属性进行字符串增序排列
+        itemsArray.sort((a, b) => a.text.localeCompare(b.text));
+
+        // 按照排好序的数组，依次将DOM元素追加到容器末尾
+        // (appendChild 会自动处理移动，无需先清空)
+        itemsArray.forEach(itemData => {
+            this.legendContainer.appendChild(itemData.element);
+        });
     }
 
     onDisconnect() {
@@ -1227,6 +1471,11 @@ class Plotter2D extends BasePlotter {
         this.legendContainer = container.querySelector(`#legend-${windowId}`);
         this.legendElements = new Map();
 
+        // 默认隐藏十字光标和工具提示
+        this.crosshairX.style.display = 'none';
+        this.crosshairY.style.display = 'none';
+        this.tooltipEl.style.display = 'none';
+
         // 初始化坐标系统
         this.coordinateSystem = new CoordinateSystem(this.canvasContainer);
 
@@ -1275,6 +1524,7 @@ class Plotter2D extends BasePlotter {
         this.resetBtn.addEventListener('click', this.resetView);
         this.dynamicFitToggle.addEventListener('change', this.onDynamicFitChange);
         this.canvasContainer.addEventListener('mousemove', this.onMouseMove);
+        this.canvasContainer.addEventListener('mouseenter', this.onMouseEnter);
         this.canvasContainer.addEventListener('mouseleave', this.onMouseLeave);
 
         this.lastControlState = {
@@ -1306,7 +1556,7 @@ class Plotter2D extends BasePlotter {
 
         const worldCoords = this.coordinateSystem.screenToWorld(mouseX, mouseY, this.camera, this.controls);
 
-        this.tooltipEl.style.display = 'block';
+        // this.tooltipEl.style.display = 'block';
         this.tooltipEl.style.left = `${mouseX + 15}px`;
         this.tooltipEl.style.top = `${mouseY + 15}px`;
         this.tooltipEl.innerText = `X: ${worldCoords.x.toFixed(2)}, Y: ${worldCoords.y.toFixed(2)}`;
@@ -1646,10 +1896,17 @@ class Plotter2D extends BasePlotter {
         // 使用统一的方法更新坐标
         this.updateCrosshairCoordinates(mouseX, mouseY);
     };
-
+    onMouseEnter = (event) => {
+        // 鼠标进入时，显示十字光标和工具提示
+        this.crosshairX.style.display = 'block';
+        this.crosshairY.style.display = 'block';
+        this.tooltipEl.style.display = 'block';
+        // 立即更新一次位置
+        this.onMouseMove(event);
+    };
     onMouseLeave = () => {
-        this.crosshairX.style.top = '-100px';
-        this.crosshairY.style.left = '-100px';
+        this.crosshairX.style.display = 'none';
+        this.crosshairY.style.display = 'none';
         this.tooltipEl.style.display = 'none';
     };
     /**
@@ -1789,57 +2046,56 @@ class Plotter2D extends BasePlotter {
     updateLegend(id, cmd) {
         console.log(`🧹 更新2D图例 id: ${id} `);
 
-        // 1. 处理删除 (cmd 为 null)
-        if (!cmd) { // Corresponds to object deletion
+        // 1. 获取数据
+        const material = cmd ? cmd.getMaterial() : null;
+        const legendText = material ? material.getLegend() : null;
+
+        // 2. 处理删除 (或没有图例文字的对象)
+        if (!cmd || !legendText) {
             if (this.legendElements.has(id)) {
-                this.legendElements.get(id).remove();
-                this.legendElements.delete(id);
+                this.legendElements.get(id).element.remove(); // 从DOM移除
+                this.legendElements.delete(id); // 从Map移除
             }
-            return;
+            return; // 完成删除，退出
         }
 
-        // 2. 获取材质和图例文本
-        const material = cmd.getMaterial();
-        const legendText = material.getLegend();
+        // 3. 处理添加/更新
+        let legendItemData = this.legendElements.get(id);
 
-        // 如果没有图例文字，则不显示
-        if (!legendText) return;
+        if (!legendItemData) {
+            // 如果是新图例
+            const element = document.createElement('div');
+            element.className = 'legend-item';
+            element.addEventListener('click', () => this.onLegendClick(id));
 
-        // 3. 查找或创建 DOM 元素
-        let legendItem = this.legendElements.get(id);
-        if (!legendItem) {
-            legendItem = document.createElement('div');
-            legendItem.className = 'legend-item';
-            this.legendContainer.appendChild(legendItem);
-            this.legendElements.set(id, legendItem);
+            // 存储元素和用于排序的文本
+            legendItemData = { element: element, text: legendText };
+            this.legendElements.set(id, legendItemData);
+        } else {
+            // 如果是更新，只需更新排序文本
+            legendItemData.text = legendText;
         }
 
-        // --- 4. 核心改动：生成SVG图标 ---
+        // 4. 更新 DOM 元素的内容 (您原有的SVG图标逻辑)
+        // [ --- 您原有的SVG图标生成逻辑开始 --- ]
         const geomType = cmd.getGeometryDataCase();
         const primaryColor = this._getProtoColor(material.getColor());
         let fillColor = 'none';
         let strokeColor = primaryColor.hex;
 
-        // 检查是否填充
         if (material.getFilled()) {
-            // 如果填充，使用fillColor（如果存在），否则使用primaryColor
             const fillProto = (material.hasFillColor && material.hasFillColor())
                 ? material.getFillColor()
                 : material.getColor();
-
-            // 如果getA不存在，给一个默认的半透明度
             const defaultAlpha = (material.hasFillColor && material.hasFillColor()) ? 1.0 : 0.5;
             const fill = this._getProtoColor(fillProto, defaultAlpha);
             fillColor = fill.rgba;
         }
-        // 获取线型
         let strokeDasharray = '';
         if (material.getLineStyle && material.getLineStyle() === proto.visualization.Material.LineStyle.DASHED) {
             strokeDasharray = '3 2'; // SVG的虚线样式
         }
-        // SVG 图标的视口
         let iconHtml = `<svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" class="legend-icon">`;
-        // 根据几何类型生成不同的 SVG 形状
         switch (geomType) {
             case proto.visualization.Add2DObject.GeometryDataCase.LINE_2D:
             case proto.visualization.Add2DObject.GeometryDataCase.TRAJECTORY_2D:
@@ -1850,7 +2106,6 @@ class Plotter2D extends BasePlotter {
                 break;
 
             case proto.visualization.Add2DObject.GeometryDataCase.POLYGON:
-                // Polygon 使用一个五边形
                 iconHtml += `<polygon points="10,2 18,8 15,18 5,18 2,8"
                                   fill="${fillColor}" 
                                   stroke="${strokeColor}" 
@@ -1874,7 +2129,6 @@ class Plotter2D extends BasePlotter {
                 break;
 
             case proto.visualization.Add2DObject.GeometryDataCase.POSE_2D:
-                // 绘制一个简单的箭头
                 iconHtml += `<path d="M 2 10 L 18 10 M 12 5 L 18 10 L 12 15" 
                                   fill="none" 
                                   stroke="${strokeColor}" 
@@ -1907,16 +2161,29 @@ class Plotter2D extends BasePlotter {
                 break;
 
             default:
-                // 默认图标（回退到原来的方块）
                 iconHtml += `<rect x="3" y="3" width="14" height="14" fill="${primaryColor.hex}" />`;
         }
         iconHtml += `</svg>`;
+        // [ --- 您原有的SVG图标生成逻辑结束 --- ]
 
-        // 5. 更新 innerHTML
-        legendItem.innerHTML = `
+        legendItemData.element.innerHTML = `
             ${iconHtml}
              <span class="legend-label">${legendText}</span>
         `;
+
+
+        // 5. 【修复】按图例文字排序并重新追加到DOM
+
+        // 从Map中获取所有图例项
+        const itemsArray = Array.from(this.legendElements.values());
+
+        // 关键：按 'text' 属性进行字符串增序排列
+        itemsArray.sort((a, b) => a.text.localeCompare(b.text));
+
+        // 按照排好序的数组，依次将DOM元素追加到容器末尾
+        itemsArray.forEach(itemData => {
+            this.legendContainer.appendChild(itemData.element);
+        });
     }
     destroy() {
         console.log(`🧹 开始销毁2D Plotter: ${this.windowId}`);
