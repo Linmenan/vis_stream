@@ -277,7 +277,7 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     }
 
     // 2. 调用原有的、基于UUID的add方法
-    std::cout << "添加动态目标" << std::endl;
+    // std::cout << "添加动态目标" << std::endl;
     add_internal(obj, window_uuid, material, is_3d, false);
   }
 
@@ -292,7 +292,7 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     }
 
     // 克隆对象并调用基于UUID的add方法
-    std::cout << "添加静态目标" << std::endl;
+    // std::cout << "添加静态目标" << std::endl;
     auto obj_copy = clone_to_shared(obj);
     if (obj_copy) {
       add_internal(obj_copy, window_uuid, material, is_3d, true);
@@ -358,8 +358,8 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
   }
 
   void clear_static(const std::string& window_name, bool is_3d) {
-    std::cout << "外部调用清除静态对象 - 窗口名称: " << window_name
-              << std::endl;
+    // std::cout << "外部调用清除静态对象 - 窗口名称: " << window_name
+    //           << std::endl;
     std::lock_guard<std::mutex> lock(m_mutex);
     cleanup_expired_objects();
 
@@ -373,8 +373,8 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
 
     auto it = m_window_objects.find(window_uuid);  // 使用UUID查找
     if (it == m_window_objects.end()) {
-      std::cout << "❌ 清除静态对象失败：窗口 '" << window_name
-                << "' 中没有对象" << std::endl;
+      // std::cout << "❌ 清除静态对象失败：窗口 '" << window_name
+      //           << "' 中没有对象" << std::endl;
       return;
     }
 
@@ -396,8 +396,8 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
   }
 
   void clear_dynamic(const std::string& window_name, bool is_3d) {
-    std::cout << "外部调用清除动态对象 - 窗口名称: " << window_name
-              << std::endl;
+    // std::cout << "外部调用清除动态对象 - 窗口名称: " << window_name
+    //           << std::endl;
     (void)is_3d;
     std::lock_guard<std::mutex> lock(m_mutex);
     cleanup_expired_objects();
@@ -411,8 +411,8 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
 
     auto it = m_window_objects.find(window_uuid);
     if (it == m_window_objects.end()) {
-      std::cout << "❌ 找不到窗口UUID对应的对象集合: " << window_uuid
-                << std::endl;
+      // std::cout << "❌ 找不到窗口UUID对应的对象集合: " << window_uuid
+      //           << std::endl;
       return;
     }
 
@@ -549,8 +549,8 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       send_window_create_command(window_uuid, name, is_3d);
     }
 
-    std::cout << "✅ 成功创建窗口: UUID=" << window_uuid << ", 名称=" << name
-              << ", 类型=" << (is_3d ? "3D" : "2D") << std::endl;
+    // std::cout << "✅ 成功创建窗口: UUID=" << window_uuid << ", 名称=" << name
+    //           << ", 类型=" << (is_3d ? "3D" : "2D") << std::endl;
     return true;
   }
   bool rename_window(const std::string& old_name, const std::string& new_name,
@@ -634,7 +634,8 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
     // 4. 最后发送删除命令到前端
     send_window_delete_command(uuid, is_3d);
 
-    std::cout << "🗑️ 删除窗口: 名称=" << name << ", UUID=" << uuid << std::endl;
+    // std::cout << "🗑️ 删除窗口: 名称=" << name << ", UUID=" << uuid <<
+    // std::endl;
     return true;
   }
   /**
@@ -665,8 +666,8 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       send_update(scene_update);
     }
 
-    std::cout << "📤 发送窗口删除命令: UUID=" << window_uuid
-              << ", 名称=" << window_name << std::endl;
+    // std::cout << "📤 发送窗口删除命令: UUID=" << window_uuid
+    //           << ", 名称=" << window_name << std::endl;
   }
   template <typename CommandType, typename SceneUpdateType>
   void send_window_command(const std::string& window_name, bool is_3d,
@@ -744,11 +745,11 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
   }
   // 内部不加锁的清除方法
   void clear_unlocked(const std::string& window_uuid) {
-    std::cout << "清空窗口 " << window_uuid << " 中的对象" << std::endl;
+    // std::cout << "清空窗口 " << window_uuid << " 中的对象" << std::endl;
     // 安全检查：如果窗口已不存在，跳过清理
     if (m_windows.find(window_uuid) == m_windows.end()) {
-      std::cout << "⚠️ 窗口 " << window_uuid << " 已不存在，跳过清空"
-                << std::endl;
+      // std::cout << "⚠️ 窗口 " << window_uuid << " 已不存在，跳过清空"
+      //           << std::endl;
       return;
     }
     cleanup_expired_objects();
@@ -775,7 +776,7 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
   }
 
   void cleanup_expired_objects() {
-    std::cout << "删除过期对象 " << std::endl;
+    // std::cout << "删除过期对象 " << std::endl;
     std::vector<std::string> expired_ids;
 
     for (const auto& [object_id, tracked] : m_tracked_objects) {
@@ -791,7 +792,7 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
   }
 
   void remove_object_internal(const std::string& object_id) {
-    std::cout << "删除对象: " << object_id << std::endl;
+    // std::cout << "删除对象: " << object_id << std::endl;
     auto it = m_tracked_objects.find(object_id);
     if (it == m_tracked_objects.end()) return;
 

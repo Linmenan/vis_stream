@@ -36,21 +36,21 @@ class AppManager {
         const windowName = sceneUpdate.getWindowName();
         const commands = sceneUpdate.getCommandsList();
 
-        console.log(`🔄 处理更新 - 窗口: ${windowId}, 类型: ${updateType}, 命令数量: ${commands.length}`);
+        // console.log(`🔄 处理更新 - 窗口: ${windowId}, 类型: ${updateType}, 命令数量: ${commands.length}`);
 
         // 首先检查命令列表中是否包含删除窗口命令
         for (let cmd of commands) {
             const commandType = cmd.getCommandTypeCase();
-            console.log(`  检查命令: 类型=${commandType}, 名称=${this.getCommandTypeName(commandType)}`);
+            // console.log(`  检查命令: 类型=${commandType}, 名称=${this.getCommandTypeName(commandType)}`);
 
             if (updateType === '2D' &&
                 commandType === proto.visualization.Command2D.CommandTypeCase.DELETE_WINDOW) {
-                console.log("🗑️ 收到2D窗口删除命令，窗口ID:", windowId);
+                // console.log("🗑️ 收到2D窗口删除命令，窗口ID:", windowId);
                 this.removePlotter(windowId);
                 return; // 直接返回，不处理其他命令
             } else if (updateType === '3D' &&
                 commandType === proto.visualization.Command3D.CommandTypeCase.DELETE_WINDOW) {
-                console.log("🗑️ 收到3D窗口删除命令，窗口ID:", windowId);
+                // console.log("🗑️ 收到3D窗口删除命令，窗口ID:", windowId);
                 this.removePlotter(windowId);
                 return; // 直接返回，不处理其他命令
             }
@@ -60,10 +60,10 @@ class AppManager {
             const commandType = cmd.getCommandTypeCase();
             if ((updateType === '2D' && commandType === proto.visualization.Command2D.CommandTypeCase.CREATE_WINDOW) ||
                 (updateType === '3D' && commandType === proto.visualization.Command3D.CommandTypeCase.CREATE_WINDOW)) {
-                console.log("🪟 收到创建窗口命令，窗口ID:", windowId);
+                // console.log("🪟 收到创建窗口命令，窗口ID:", windowId);
                 // 如果窗口已存在，警告并忽略
                 if (this.plotters.has(windowId)) {
-                    console.warn("🔄 窗口已存在！！！", windowId);
+                    // console.warn("🔄 窗口已存在！！！", windowId);
                     return;
                     // this.removePlotter(windowId);
                 }
@@ -80,7 +80,7 @@ class AppManager {
         const plotter = this.plotters.get(windowId);
         commands.forEach((cmd, index) => {
             const commandType = cmd.getCommandTypeCase();
-            console.log(`  执行命令 ${index}: 类型=${commandType}, 名称=${this.getCommandTypeName(commandType)}`);
+            // console.log(`  执行命令 ${index}: 类型=${commandType}, 名称=${this.getCommandTypeName(commandType)}`);
             plotter.dispatch(cmd);
         });
     }
@@ -345,7 +345,7 @@ class BasePlotter {
     }
 
     removeObject(objectId) {
-        console.log(`🧹 开始销毁图元id: ${objectId} `);
+        // console.log(`🧹 开始销毁图元id: ${objectId} `);
         if (objectId === this.highlightedObjectId) {
             this.clearHighlight();
             this.highlightedObjectId = null;
@@ -683,7 +683,7 @@ class Plotter3D extends BasePlotter {
         this.titleEl.innerText = this.titleEl.innerText + " (连接已断开)";
     }
     destroy() {
-        console.log(`🧹 开始销毁3D Plotter: ${this.windowId}`);
+        // console.log(`🧹 开始销毁3D Plotter: ${this.windowId}`);
         // 清理图例
         if (this.legendElements) {
             this.legendElements.forEach((element, id) => {
@@ -732,7 +732,7 @@ class Plotter3D extends BasePlotter {
         // 最后调用父类销毁方法
         super.destroy();
 
-        console.log(`✅ 3D Plotter销毁完成: ${this.windowId}`);
+        // console.log(`✅ 3D Plotter销毁完成: ${this.windowId}`);
     }
 }
 /**
@@ -2044,7 +2044,7 @@ class Plotter2D extends BasePlotter {
         };
     }
     updateLegend(id, cmd) {
-        console.log(`🧹 更新2D图例 id: ${id} `);
+        // console.log(`🧹 更新2D图例 id: ${id} `);
 
         // 1. 获取数据
         const material = cmd ? cmd.getMaterial() : null;
@@ -2186,7 +2186,7 @@ class Plotter2D extends BasePlotter {
         });
     }
     destroy() {
-        console.log(`🧹 开始销毁2D Plotter: ${this.windowId}`);
+        // console.log(`🧹 开始销毁2D Plotter: ${this.windowId}`);
 
         // 先停止所有可能的事件和动画
         if (this.resizeTimeout) {
@@ -2236,7 +2236,7 @@ class Plotter2D extends BasePlotter {
         // 最后调用父类销毁方法
         super.destroy();
 
-        console.log(`✅ 2D Plotter销毁完成: ${this.windowId}`);
+        // console.log(`✅ 2D Plotter销毁完成: ${this.windowId}`);
     }
 }
 // 一个辅助对象，用于创建和缓存点的纹理
@@ -2292,19 +2292,19 @@ class ObjectFactory {
     // --- 3D Methods ---
     create3D(cmd) {
         const data = cmd.getGeometryDataCase();
-        console.log('3D几何数据类型检查：', {
-            case: data,
-            hasPoint2D: cmd.hasPoint2d(),
-            hasPose2D: cmd.hasPose2d(),
-            hasCircle: cmd.hasCircle(),
-            hasBox2D: cmd.hasBox2d(),
-            hasLine2D: cmd.hasLine2d(),
-            hasPolygon: cmd.hasPolygon(),
-            hasPoint3D: cmd.hasPose3d(),
-            hasPose3D: cmd.hasPose3d(),
-            hasBall: cmd.hasBall(),
-            hasBox3D: cmd.hasBox3d()
-        });
+        // console.log('3D几何数据类型检查：', {
+        //     case: data,
+        //     hasPoint2D: cmd.hasPoint2d(),
+        //     hasPose2D: cmd.hasPose2d(),
+        //     hasCircle: cmd.hasCircle(),
+        //     hasBox2D: cmd.hasBox2d(),
+        //     hasLine2D: cmd.hasLine2d(),
+        //     hasPolygon: cmd.hasPolygon(),
+        //     hasPoint3D: cmd.hasPose3d(),
+        //     hasPose3D: cmd.hasPose3d(),
+        //     hasBall: cmd.hasBall(),
+        //     hasBox3D: cmd.hasBox3d()
+        // });
         const mat = cmd.getMaterial();
         let obj = null;
         switch (data) {
@@ -2685,26 +2685,26 @@ class ObjectFactory {
         const mat = material || obj.material;
         const data = cmd.getGeometryDataCase();
 
-        console.log(`🔄 更新2D对象，类型: ${data}, obj类型: ${obj.type}, isMesh: ${obj.isMesh}`);
+        // console.log(`🔄 更新2D对象，类型: ${data}, obj类型: ${obj.type}, isMesh: ${obj.isMesh}`);
 
         // 只在有 material 的对象上处理材质
         if (mat && obj.material) {
-            console.log(`🎨 材质处理 - 有材质: ${!!mat}, obj有材质: ${!!obj.material}`);
+            // console.log(`🎨 材质处理 - 有材质: ${!!mat}, obj有材质: ${!!obj.material}`);
 
             // 修正：先检查是否有填充颜色，再获取
             if (obj.isMesh && mat.hasFillColor && mat.hasFillColor()) {
                 const fillColor = mat.getFillColor();
-                console.log(`🟦 设置填充颜色: R=${fillColor.getR()}, G=${fillColor.getG()}, B=${fillColor.getB()}, A=${fillColor.getA()}`);
+                // console.log(`🟦 设置填充颜色: R=${fillColor.getR()}, G=${fillColor.getG()}, B=${fillColor.getB()}, A=${fillColor.getA()}`);
                 obj.material.color.setRGB(fillColor.getR(), fillColor.getG(), fillColor.getB());
                 obj.material.opacity = fillColor.getA();
                 obj.material.transparent = fillColor.getA() < 1.0;
             } else if (mat.getColor) {
                 const color = mat.getColor();
-                console.log(`🟨 设置线条颜色: R=${color.getR()}, G=${color.getG()}, B=${color.getB()}`);
+                // console.log(`🟨 设置线条颜色: R=${color.getR()}, G=${color.getG()}, B=${color.getB()}`);
                 obj.material.color.setRGB(color.getR(), color.getG(), color.getB());
             }
         } else {
-            console.log(`⚠️ 跳过材质处理 - obj没有material属性或没有材质`);
+            console.warn(`⚠️ 跳过材质处理 - obj没有material属性或没有材质`);
         }
 
 
@@ -2732,9 +2732,9 @@ class ObjectFactory {
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.POLYGON: {
                 const geom = cmd.getPolygon();
                 const vertices = geom.getVerticesList().map(p => new THREE.Vector2(p.getPosition().getX(), p.getPosition().getY()));
-                console.log(`📐 POLYGON更新 - 顶点数量: ${vertices.length}, obj.isMesh: ${obj.isMesh}`);
+                // console.log(`📐 POLYGON更新 - 顶点数量: ${vertices.length}, obj.isMesh: ${obj.isMesh}`);
                 if (obj.isMesh) {
-                    console.log(`🟦 创建填充POLYGON几何体`);
+                    // console.log(`🟦 创建填充POLYGON几何体`);
                     // 填充的多边形 - 使用 ShapeGeometry
                     const shape = new THREE.Shape(vertices);
                     obj.geometry.dispose();
@@ -2744,9 +2744,9 @@ class ObjectFactory {
                     if (mat && mat.color) {
                         obj.material.color.copy(mat.color);
                     }
-                    console.log(`✅ 填充POLYGON几何体创建完成`);
+                    // console.log(`✅ 填充POLYGON几何体创建完成`);
                 } else {
-                    console.log(`🟨 创建线框POLYGON几何体`);
+                    // console.log(`🟨 创建线框POLYGON几何体`);
                     // 线框多边形 - 使用闭合的线
                     const points = vertices.map(v => new THREE.Vector3(v.x, v.y, 0));
                     // 闭合多边形
@@ -2760,12 +2760,12 @@ class ObjectFactory {
                     if (mat && mat.color) {
                         obj.material.color.copy(mat.color);
                     }
-                    console.log(`✅ 线框POLYGON几何体创建完成`);
+                    // console.log(`✅ 线框POLYGON几何体创建完成`);
                 }
                 break;
             }
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.CIRCLE: {
-                console.log(`📐 CIRCLE更新 - obj.isMesh: ${obj.isMesh}`);
+                // console.log(`📐 CIRCLE更新 - obj.isMesh: ${obj.isMesh}`);
                 const geom = cmd.getCircle();
                 const center = geom.getCenter();
                 const radius = geom.getRadius();
@@ -2799,7 +2799,7 @@ class ObjectFactory {
             }
 
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.BOX_2D: {
-                console.log(`📐 BOX_2D更新 - obj.isMesh: ${obj.isMesh}`);
+                // console.log(`📐 BOX_2D更新 - obj.isMesh: ${obj.isMesh}`);
                 const geom = cmd.getBox2d();
                 const center = geom.getCenter().getPosition();
                 const theta = geom.getCenter().getTheta();
@@ -2850,7 +2850,7 @@ class ObjectFactory {
                 break;
             }
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.TRAJECTORY_2D: {
-                console.log(`📐 TRAJECTORY_2D更新 - 轨迹点数量: ${cmd.getTrajectory2d().getPosesList().length}`);
+                // console.log(`📐 TRAJECTORY_2D更新 - 轨迹点数量: ${cmd.getTrajectory2d().getPosesList().length}`);
                 const geom = cmd.getTrajectory2d();
 
                 // 清除现有的子对象
@@ -2888,7 +2888,7 @@ class ObjectFactory {
                 const opacity = 0.3;
                 const lineWidth = 1;
 
-                console.log(`🎨 TRAJECTORY颜色 - 填充: ${fillColor.getHexString()}, 线条: ${lineColor.getHexString()}`);
+                // console.log(`🎨 TRAJECTORY颜色 - 填充: ${fillColor.getHexString()}, 线条: ${lineColor.getHexString()}`);
 
                 poses.forEach((pose, index) => {
                     const center = pose.getCenter();
@@ -2955,11 +2955,11 @@ class ObjectFactory {
             }
         }
         // 只在有 material 的对象上检查最终状态
-        if (obj.material) {
-            console.log(`🔍 最终材质状态 - 颜色:`, obj.material.color, `透明度:`, obj.material.opacity, `是否透明:`, obj.material.transparent);
-        } else {
-            console.log(`🔍 最终状态 - obj没有material属性`);
-        }
+        // if (obj.material) {
+        //     console.log(`🔍 最终材质状态 - 颜色:`, obj.material.color, `透明度:`, obj.material.opacity, `是否透明:`, obj.material.transparent);
+        // } else {
+        //     console.log(`🔍 最终状态 - obj没有material属性`);
+        // }
     }
 
     // --- Helper Methods ---
@@ -2985,15 +2985,15 @@ class ObjectFactory {
         const data = cmd.getGeometryDataCase();
         const mat = cmd.getMaterial();
         let obj;
-        console.log(`🆕 创建2D对象，类型: ${data}, 材质填充: ${mat.getFilled()}`);
+        // console.log(`🆕 创建2D对象，类型: ${data}, 材质填充: ${mat.getFilled()}`);
 
         // 调试：检查材质对象的完整结构
-        console.log('🔍 材质对象:', mat);
-        console.log('🔍 材质对象方法:', Object.getOwnPropertyNames(mat).filter(name => name.startsWith('get') || name.startsWith('has')));
+        // console.log('🔍 材质对象:', mat);
+        // console.log('🔍 材质对象方法:', Object.getOwnPropertyNames(mat).filter(name => name.startsWith('get') || name.startsWith('has')));
 
         // 检查填充颜色相关方法
-        console.log('🔍 getFillColor:', typeof mat.getFillColor);
-        console.log('🔍 hasFillColor:', typeof mat.hasFillColor);
+        // console.log('🔍 getFillColor:', typeof mat.getFillColor);
+        // console.log('🔍 hasFillColor:', typeof mat.hasFillColor);
 
         switch (data) {
             case proto.visualization.Add2DObject.GeometryDataCase.POINT_2D: {
@@ -3022,7 +3022,7 @@ class ObjectFactory {
                 break;
             }
             case proto.visualization.Add2DObject.GeometryDataCase.POLYGON: {
-                console.log(`🔍 POLYGON - 填充状态: ${mat.getFilled()}`);
+                // console.log(`🔍 POLYGON - 填充状态: ${mat.getFilled()}`);
 
                 const geometry = new THREE.BufferGeometry();
                 const materialArgs = {
@@ -3034,12 +3034,12 @@ class ObjectFactory {
                     let fillColor;
                     if (mat.hasFillColor && mat.hasFillColor()) {
                         fillColor = mat.getFillColor();
-                        console.log(`🎨 POLYGON - 填充颜色:`, fillColor);
+                        // console.log(`🎨 POLYGON - 填充颜色:`, fillColor);
                     } else {
                         // 如果没有填充颜色，使用线条颜色作为填充颜色
                         const color = mat.getColor();
                         fillColor = color;
-                        console.log(`⚠️ POLYGON - 无填充颜色，使用线条颜色作为填充`);
+                        // console.log(`⚠️ POLYGON - 无填充颜色，使用线条颜色作为填充`);
                     }
 
                     materialArgs.color = new THREE.Color(fillColor.getR(), fillColor.getG(), fillColor.getB());
@@ -3055,18 +3055,18 @@ class ObjectFactory {
 
                     obj = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial(materialArgs));
                     obj.isMesh = true;
-                    console.log(`✅ 创建填充POLYGON Mesh, 颜色:`, materialArgs.color, `透明度:`, materialArgs.opacity);
+                    // console.log(`✅ 创建填充POLYGON Mesh, 颜色:`, materialArgs.color, `透明度:`, materialArgs.opacity);
                 } else {
                     const color = mat.getColor();
                     materialArgs.color = new THREE.Color(color.getR(), color.getG(), color.getB());
                     obj = new THREE.LineLoop(geometry, new THREE.LineBasicMaterial(materialArgs));
                     obj.isMesh = false;
-                    console.log(`✅ 创建线框POLYGON LineLoop, 颜色:`, materialArgs.color);
+                    // console.log(`✅ 创建线框POLYGON LineLoop, 颜色:`, materialArgs.color);
                 }
                 break;
             }
             case proto.visualization.Add2DObject.GeometryDataCase.CIRCLE: {
-                console.log(`🔍 CIRCLE - 填充状态: ${mat.getFilled()}`);
+                // console.log(`🔍 CIRCLE - 填充状态: ${mat.getFilled()}`);
 
                 const geometry = new THREE.BufferGeometry();
                 const materialArgs = {
@@ -3093,18 +3093,18 @@ class ObjectFactory {
 
                     obj = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial(materialArgs));
                     obj.isMesh = true;
-                    console.log(`✅ 创建填充CIRCLE Mesh, 颜色:`, materialArgs.color, `透明度:`, materialArgs.opacity);
+                    // console.log(`✅ 创建填充CIRCLE Mesh, 颜色:`, materialArgs.color, `透明度:`, materialArgs.opacity);
                 } else {
                     const color = mat.getColor();
                     materialArgs.color = new THREE.Color(color.getR(), color.getG(), color.getB());
                     obj = new THREE.LineLoop(geometry, new THREE.LineBasicMaterial(materialArgs));
                     obj.isMesh = false;
-                    console.log(`✅ 创建线框CIRCLE LineLoop, 颜色:`, materialArgs.color);
+                    // console.log(`✅ 创建线框CIRCLE LineLoop, 颜色:`, materialArgs.color);
                 }
                 break;
             }
             case proto.visualization.Add2DObject.GeometryDataCase.BOX_2D: {
-                console.log(`🔍 BOX_2D - 填充状态: ${mat.getFilled()}`);
+                // console.log(`🔍 BOX_2D - 填充状态: ${mat.getFilled()}`);
 
                 const geometry = new THREE.BufferGeometry();
                 const materialArgs = {
@@ -3131,13 +3131,13 @@ class ObjectFactory {
 
                     obj = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial(materialArgs));
                     obj.isMesh = true;
-                    console.log(`✅ 创建填充BOX_2D Mesh, 颜色:`, materialArgs.color, `透明度:`, materialArgs.opacity);
+                    // console.log(`✅ 创建填充BOX_2D Mesh, 颜色:`, materialArgs.color, `透明度:`, materialArgs.opacity);
                 } else {
                     const color = mat.getColor();
                     materialArgs.color = new THREE.Color(color.getR(), color.getG(), color.getB());
                     obj = new THREE.LineLoop(geometry, new THREE.LineBasicMaterial(materialArgs));
                     obj.isMesh = false;
-                    console.log(`✅ 创建线框BOX_2D LineLoop, 颜色:`, materialArgs.color);
+                    // console.log(`✅ 创建线框BOX_2D LineLoop, 颜色:`, materialArgs.color);
                 }
                 break;
             }
@@ -3235,7 +3235,7 @@ class ConnectionManager {
         const visMessage = proto.visualization.VisMessage.deserializeBinary(data);
 
         const messageType = visMessage.getMessageDataCase();
-        console.log("📋 消息类型:", messageType);
+        // console.log("📋 消息类型:", messageType);
 
         if (messageType === proto.visualization.VisMessage.MessageDataCase.SCENE_3D_UPDATE) {
             const sceneUpdate = visMessage.getScene3dUpdate();
