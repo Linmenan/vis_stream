@@ -2687,27 +2687,6 @@ class ObjectFactory {
 
         // console.log(`🔄 更新2D对象，类型: ${data}, obj类型: ${obj.type}, isMesh: ${obj.isMesh}`);
 
-        // 只在有 material 的对象上处理材质
-        if (mat && obj.material) {
-            // console.log(`🎨 材质处理 - 有材质: ${!!mat}, obj有材质: ${!!obj.material}`);
-
-            // 修正：先检查是否有填充颜色，再获取
-            if (obj.isMesh && mat.hasFillColor && mat.hasFillColor()) {
-                const fillColor = mat.getFillColor();
-                // console.log(`🟦 设置填充颜色: R=${fillColor.getR()}, G=${fillColor.getG()}, B=${fillColor.getB()}, A=${fillColor.getA()}`);
-                obj.material.color.setRGB(fillColor.getR(), fillColor.getG(), fillColor.getB());
-                obj.material.opacity = fillColor.getA();
-                obj.material.transparent = fillColor.getA() < 1.0;
-            } else if (mat.getColor) {
-                const color = mat.getColor();
-                // console.log(`🟨 设置线条颜色: R=${color.getR()}, G=${color.getG()}, B=${color.getB()}`);
-                obj.material.color.setRGB(color.getR(), color.getG(), color.getB());
-            }
-        } else {
-            console.warn(`⚠️ 跳过材质处理 - obj没有material属性或没有材质`);
-        }
-
-
         switch (data) {
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.POINT_2D: {
                 const pos = cmd.getPoint2d().getPosition();
@@ -2722,6 +2701,13 @@ class ObjectFactory {
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.LINE_2D: {
                 const geom = cmd.getLine2d();
                 const points = geom.getPointsList().map(p => new THREE.Vector3(p.getPosition().getX(), p.getPosition().getY(), 0));
+                if (points.length === 0) {
+                    // console.warn("Line2D update with 0 points, skipping geometry creation.");
+                    // 清空现有几何体（如果需要）
+                    obj.geometry.dispose();
+                    obj.geometry = new THREE.BufferGeometry(); // 设为空几何体
+                    break;
+                }
                 obj.geometry.dispose(); // Dispose old geometry
                 obj.geometry = new THREE.BufferGeometry().setFromPoints(points);
                 if (obj.material.isLineDashedMaterial) {
@@ -2732,54 +2718,72 @@ class ObjectFactory {
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.POLYGON: {
                 const geom = cmd.getPolygon();
                 const vertices = geom.getVerticesList().map(p => new THREE.Vector2(p.getPosition().getX(), p.getPosition().getY()));
-                // console.log(`📐 POLYGON更新 - 顶点数量: ${vertices.length}, obj.isMesh: ${obj.isMesh}`);
-                if (obj.isMesh) {
-                    // console.log(`🟦 创建填充POLYGON几何体`);
-                    // 填充的多边形 - 使用 ShapeGeometry
+
+                if (vertices.length === 0) {
+                    // console.warn("Polygon update with 0 vertices, skipping geometry creation.");
+                    // 清空现有几何体（如果需要）
+                    const fillMesh = obj.getObjectByName("shape_fill");
+                    const lineMesh = obj.getObjectByName("shape_line");
+                    if (fillMesh) {
+                        fillMesh.geometry.dispose();
+                        fillMesh.geometry = new THREE.BufferGeometry();
+                    }
+                    if (lineMesh) {
+                        lineMesh.geometry.dispose();
+                        lineMesh.geometry = new THREE.BufferGeometry();
+                    }
+                    break; // 停止执行
+                }
+
+                const fillMesh = obj.getObjectByName("shape_fill");
+                const lineMesh = obj.getObjectByName("shape_line");
+
+                // 1. 更新填充几何体
+                if (fillMesh) {
                     const shape = new THREE.Shape(vertices);
-                    obj.geometry.dispose();
-                    obj.geometry = new THREE.ShapeGeometry(shape);
+                    fillMesh.geometry.dispose();
+                    fillMesh.geometry = new THREE.ShapeGeometry(shape);
 
-                    // 使用传入的材质颜色
-                    if (mat && mat.color) {
-                        obj.material.color.copy(mat.color);
+                    // 仅在 create2D (mat 存在) 时设置初始材质
+                    if (mat) {
+                        this.applyMaterialLogic2D(fillMesh, lineMesh, mat);
                     }
-                    // console.log(`✅ 填充POLYGON几何体创建完成`);
-                } else {
-                    // console.log(`🟨 创建线框POLYGON几何体`);
-                    // 线框多边形 - 使用闭合的线
+                }
+
+                // 2. 更新边线几何体
+                if (lineMesh) {
                     const points = vertices.map(v => new THREE.Vector3(v.x, v.y, 0));
-                    // 闭合多边形
-                    if (points.length > 0) {
-                        points.push(points[0].clone());
-                    }
-                    obj.geometry.dispose();
-                    obj.geometry = new THREE.BufferGeometry().setFromPoints(points);
+                    lineMesh.geometry.dispose();
+                    lineMesh.geometry = new THREE.BufferGeometry().setFromPoints(points);
 
-                    // 使用传入的材质颜色
-                    if (mat && mat.color) {
-                        obj.material.color.copy(mat.color);
+                    // 仅在 create2D (mat 存在) 时设置初始材质
+                    if (mat && !fillMesh) { // 仅当 fillMesh 不存在时单独设置
+                        this.applyMaterialLogic2D(fillMesh, lineMesh, mat);
                     }
-                    // console.log(`✅ 线框POLYGON几何体创建完成`);
                 }
                 break;
             }
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.CIRCLE: {
-                // console.log(`📐 CIRCLE更新 - obj.isMesh: ${obj.isMesh}`);
                 const geom = cmd.getCircle();
                 const center = geom.getCenter();
                 const radius = geom.getRadius();
 
-                if (obj.isMesh) {
-                    obj.geometry.dispose();
-                    obj.geometry = new THREE.CircleGeometry(radius, 32);
-                    obj.position.set(center.getX(), center.getY(), 0);
+                const fillMesh = obj.getObjectByName("shape_fill");
+                const lineMesh = obj.getObjectByName("shape_line");
 
-                    // 使用传入的材质颜色
-                    if (mat && mat.color) {
-                        obj.material.color.copy(mat.color);
+                // 1. 更新填充几何体
+                if (fillMesh) {
+                    fillMesh.geometry.dispose();
+                    fillMesh.geometry = new THREE.CircleGeometry(radius, 32);
+                    fillMesh.position.set(center.getX(), center.getY(), -0.01);
+
+                    if (mat) {
+                        this.applyMaterialLogic2D(fillMesh, lineMesh, mat);
                     }
-                } else {
+                }
+
+                // 2. 更新边线几何体
+                if (lineMesh) {
                     const curve = new THREE.EllipseCurve(
                         center.getX(), center.getY(),
                         radius, radius,
@@ -2787,64 +2791,62 @@ class ObjectFactory {
                         false, 0
                     );
                     const points = curve.getPoints(50);
-                    obj.geometry.dispose();
-                    obj.geometry = new THREE.BufferGeometry().setFromPoints(points);
+                    lineMesh.geometry.dispose();
+                    lineMesh.geometry = new THREE.BufferGeometry().setFromPoints(points);
 
-                    // 使用传入的材质颜色
-                    if (mat && mat.color) {
-                        obj.material.color.copy(mat.color);
+                    if (mat && !fillMesh) {
+                        this.applyMaterialLogic2D(fillMesh, lineMesh, mat);
                     }
                 }
                 break;
             }
 
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.BOX_2D: {
-                // console.log(`📐 BOX_2D更新 - obj.isMesh: ${obj.isMesh}`);
                 const geom = cmd.getBox2d();
+                // ... (计算 worldCornersV2 和 worldCornersV3 的逻辑) ...
                 const center = geom.getCenter().getPosition();
                 const theta = geom.getCenter().getTheta();
                 const w = geom.getWidth();
                 const lf = geom.getLengthFront();
                 const lr = geom.getLengthRear();
-
-                // 计算矩形的四个角点
                 const localCorners = [
                     new THREE.Vector2(-lr, w / 2),
                     new THREE.Vector2(lf, w / 2),
                     new THREE.Vector2(lf, -w / 2),
                     new THREE.Vector2(-lr, -w / 2)
                 ];
-
-                // 旋转并平移角点
-                const worldCorners = localCorners.map(corner => {
+                const worldCornersV2 = localCorners.map(corner => {
                     const rotated = new THREE.Vector2(
                         corner.x * Math.cos(theta) - corner.y * Math.sin(theta),
                         corner.x * Math.sin(theta) + corner.y * Math.cos(theta)
                     );
-                    return new THREE.Vector3(
-                        rotated.x + center.getX(),
-                        rotated.y + center.getY(),
-                        0
-                    );
+                    rotated.x += center.getX();
+                    rotated.y += center.getY();
+                    return rotated;
                 });
+                const worldCornersV3 = worldCornersV2.map(v => new THREE.Vector3(v.x, v.y, 0));
 
-                if (obj.isMesh) {
-                    const shape = new THREE.Shape(worldCorners.map(v => new THREE.Vector2(v.x, v.y)));
-                    obj.geometry.dispose();
-                    obj.geometry = new THREE.ShapeGeometry(shape);
+                const fillMesh = obj.getObjectByName("shape_fill");
+                const lineMesh = obj.getObjectByName("shape_line");
 
-                    // 使用传入的材质颜色
-                    if (mat && mat.color) {
-                        obj.material.color.copy(mat.color);
+                // 1. 更新填充几何体
+                if (fillMesh) {
+                    const shape = new THREE.Shape(worldCornersV2);
+                    fillMesh.geometry.dispose();
+                    fillMesh.geometry = new THREE.ShapeGeometry(shape);
+
+                    if (mat) {
+                        this.applyMaterialLogic2D(fillMesh, lineMesh, mat);
                     }
-                } else {
-                    const closedCorners = [...worldCorners, worldCorners[0]];
-                    obj.geometry.dispose();
-                    obj.geometry = new THREE.BufferGeometry().setFromPoints(closedCorners);
+                }
 
-                    // 使用传入的材质颜色
-                    if (mat && mat.color) {
-                        obj.material.color.copy(mat.color);
+                // 2. 更新边线几何体
+                if (lineMesh) {
+                    lineMesh.geometry.dispose();
+                    lineMesh.geometry = new THREE.BufferGeometry().setFromPoints(worldCornersV3);
+
+                    if (mat && !fillMesh) {
+                        this.applyMaterialLogic2D(fillMesh, lineMesh, mat);
                     }
                 }
                 break;
@@ -3021,124 +3023,74 @@ class ObjectFactory {
                 obj = new THREE.Line(geometry, material);
                 break;
             }
-            case proto.visualization.Add2DObject.GeometryDataCase.POLYGON: {
-                // console.log(`🔍 POLYGON - 填充状态: ${mat.getFilled()}`);
-
-                const geometry = new THREE.BufferGeometry();
-                const materialArgs = {
-                    side: THREE.DoubleSide
-                };
-
-                if (mat.getFilled()) {
-                    // 安全地获取填充颜色：先检查是否存在，再获取
-                    let fillColor;
-                    if (mat.hasFillColor && mat.hasFillColor()) {
-                        fillColor = mat.getFillColor();
-                        // console.log(`🎨 POLYGON - 填充颜色:`, fillColor);
-                    } else {
-                        // 如果没有填充颜色，使用线条颜色作为填充颜色
-                        const color = mat.getColor();
-                        fillColor = color;
-                        // console.log(`⚠️ POLYGON - 无填充颜色，使用线条颜色作为填充`);
-                    }
-
-                    materialArgs.color = new THREE.Color(fillColor.getR(), fillColor.getG(), fillColor.getB());
-
-                    // 安全地获取透明度
-                    if (fillColor && typeof fillColor.getA === 'function') {
-                        materialArgs.opacity = fillColor.getA();
-                        materialArgs.transparent = fillColor.getA() < 1.0;
-                    } else {
-                        materialArgs.opacity = 0.3; // 默认透明度
-                        materialArgs.transparent = true;
-                    }
-
-                    obj = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial(materialArgs));
-                    obj.isMesh = true;
-                    // console.log(`✅ 创建填充POLYGON Mesh, 颜色:`, materialArgs.color, `透明度:`, materialArgs.opacity);
-                } else {
-                    const color = mat.getColor();
-                    materialArgs.color = new THREE.Color(color.getR(), color.getG(), color.getB());
-                    obj = new THREE.LineLoop(geometry, new THREE.LineBasicMaterial(materialArgs));
-                    obj.isMesh = false;
-                    // console.log(`✅ 创建线框POLYGON LineLoop, 颜色:`, materialArgs.color);
-                }
-                break;
-            }
-            case proto.visualization.Add2DObject.GeometryDataCase.CIRCLE: {
-                // console.log(`🔍 CIRCLE - 填充状态: ${mat.getFilled()}`);
-
-                const geometry = new THREE.BufferGeometry();
-                const materialArgs = {
-                    side: THREE.DoubleSide
-                };
-
-                if (mat.getFilled()) {
-                    let fillColor;
-                    if (mat.hasFillColor && mat.hasFillColor()) {
-                        fillColor = mat.getFillColor();
-                    } else {
-                        fillColor = mat.getColor();
-                    }
-
-                    materialArgs.color = new THREE.Color(fillColor.getR(), fillColor.getG(), fillColor.getB());
-
-                    if (fillColor && typeof fillColor.getA === 'function') {
-                        materialArgs.opacity = fillColor.getA();
-                        materialArgs.transparent = fillColor.getA() < 1.0;
-                    } else {
-                        materialArgs.opacity = 0.3;
-                        materialArgs.transparent = true;
-                    }
-
-                    obj = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial(materialArgs));
-                    obj.isMesh = true;
-                    // console.log(`✅ 创建填充CIRCLE Mesh, 颜色:`, materialArgs.color, `透明度:`, materialArgs.opacity);
-                } else {
-                    const color = mat.getColor();
-                    materialArgs.color = new THREE.Color(color.getR(), color.getG(), color.getB());
-                    obj = new THREE.LineLoop(geometry, new THREE.LineBasicMaterial(materialArgs));
-                    obj.isMesh = false;
-                    // console.log(`✅ 创建线框CIRCLE LineLoop, 颜色:`, materialArgs.color);
-                }
-                break;
-            }
+            case proto.visualization.Add2DObject.GeometryDataCase.POLYGON:
+            case proto.visualization.Add2DObject.GeometryDataCase.CIRCLE:
             case proto.visualization.Add2DObject.GeometryDataCase.BOX_2D: {
-                // console.log(`🔍 BOX_2D - 填充状态: ${mat.getFilled()}`);
+                // console.log(`🔍 2D 形状创建 - 填充状态: ${mat.getFilled()}`);
 
-                const geometry = new THREE.BufferGeometry();
-                const materialArgs = {
-                    side: THREE.DoubleSide
-                };
+                obj = new THREE.Group();
 
-                if (mat.getFilled()) {
-                    let fillColor;
-                    if (mat.hasFillColor && mat.hasFillColor()) {
-                        fillColor = mat.getFillColor();
+                // 1. 总是创建边线对象 (LineLoop)
+                const lineColor = mat.getColor();
+                let lineRGB = new THREE.Color(0, 0, 0); // 默认黑色
+                if (lineColor) {
+                    lineRGB.setRGB(lineColor.getR(), lineColor.getG(), lineColor.getB());
+                }
+                const lineMaterial = new THREE.LineBasicMaterial({ color: lineRGB });
+                const lineLoop = new THREE.LineLoop(new THREE.BufferGeometry(), lineMaterial);
+                lineLoop.name = "shape_line"; // 命名以便更新
+                obj.add(lineLoop);
+                // console.log(`✅ 创建线框 LineLoop, 颜色:`, lineRGB);
+
+                // 2. 总是创建填充对象 (Mesh)
+                const materialArgs = { side: THREE.DoubleSide };
+                let protoFillColor;
+
+                // 实施您的颜色逻辑:
+                if (mat.hasFillColor && mat.hasFillColor()) {
+                    // 1. 存在 fill_color，使用它
+                    protoFillColor = mat.getFillColor();
+                    // console.log(`🎨 填充 - 使用 fill_color`);
+                } else if (mat.getColor) {
+                    // 2. 不存在 fill_color，回退到 line color
+                    protoFillColor = mat.getColor();
+                    // console.log(`🎨 填充 - 回退到 line color`);
+                } else {
+                    // 3. 都不存在
+                    protoFillColor = null;
+                    // console.log(`🎨 填充 - 回退到 默认`);
+                }
+
+                if (protoFillColor) {
+                    materialArgs.color = new THREE.Color(protoFillColor.getR(), protoFillColor.getG(), protoFillColor.getB());
+
+                    // 透明度处理
+                    if (mat.hasFillColor && mat.hasFillColor() && typeof protoFillColor.getA === 'function') {
+                        // 如果使用的是 fill_color，则使用它的 alpha
+                        materialArgs.opacity = protoFillColor.getA();
+                        materialArgs.transparent = protoFillColor.getA() < 1.0;
                     } else {
-                        fillColor = mat.getColor();
-                    }
-
-                    materialArgs.color = new THREE.Color(fillColor.getR(), fillColor.getG(), fillColor.getB());
-
-                    if (fillColor && typeof fillColor.getA === 'function') {
-                        materialArgs.opacity = fillColor.getA();
-                        materialArgs.transparent = fillColor.getA() < 1.0;
-                    } else {
+                        // 如果回退到 line_color (它没有alpha)，使用默认透明度
                         materialArgs.opacity = 0.3;
                         materialArgs.transparent = true;
                     }
-
-                    obj = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial(materialArgs));
-                    obj.isMesh = true;
-                    // console.log(`✅ 创建填充BOX_2D Mesh, 颜色:`, materialArgs.color, `透明度:`, materialArgs.opacity);
                 } else {
-                    const color = mat.getColor();
-                    materialArgs.color = new THREE.Color(color.getR(), color.getG(), color.getB());
-                    obj = new THREE.LineLoop(geometry, new THREE.LineBasicMaterial(materialArgs));
-                    obj.isMesh = false;
-                    // console.log(`✅ 创建线框BOX_2D LineLoop, 颜色:`, materialArgs.color);
+                    // 默认黑色
+                    materialArgs.color = new THREE.Color(0, 0, 0);
+                    materialArgs.opacity = 0.3;
+                    materialArgs.transparent = true;
                 }
+
+                const fillMesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial(materialArgs));
+                fillMesh.name = "shape_fill"; // 命名以便更新
+                fillMesh.position.z = -0.01; // 确保填充在边线下
+
+                // 3. *** 关键：使用 mat.getFilled() 控制初始可见性 ***
+                fillMesh.visible = mat.getFilled();
+
+                obj.add(fillMesh);
+
+                // console.log(`✅ 创建填充 Mesh, 颜色:`, materialArgs.color, `透明度:`, materialArgs.opacity, `可见:`, fillMesh.visible);
                 break;
             }
             case proto.visualization.Add2DObject.GeometryDataCase.TRAJECTORY_2D: {
@@ -3204,6 +3156,58 @@ class ObjectFactory {
         const angle = pose2dProto.getTheta();
         obj.position.set(pos.getX(), pos.getY(), 0);
         obj.rotation.z = angle;
+    }
+    // *** 新增: 辅助函数，用于应用材质逻辑 ***
+    /**
+     * @param {THREE.Mesh} fillMesh (shape_fill)
+     * @param {THREE.LineLoop} lineMesh (shape_line)
+     * @param {proto.visualization.Material} mat
+     */
+    applyMaterialLogic2D(fillMesh, lineMesh, mat) {
+        if (!mat) return;
+
+        // 1. 更新填充 (Mesh)
+        if (fillMesh) {
+            let protoFillColor;
+
+            // 实施您的颜色逻辑:
+            if (mat.hasFillColor && mat.hasFillColor()) {
+                protoFillColor = mat.getFillColor();
+            } else if (mat.getColor) {
+                protoFillColor = mat.getColor();
+            } else {
+                protoFillColor = null;
+            }
+
+            if (protoFillColor) {
+                fillMesh.material.color.setRGB(protoFillColor.getR(), protoFillColor.getG(), protoFillColor.getB());
+
+                if (mat.hasFillColor && mat.hasFillColor() && typeof protoFillColor.getA === 'function') {
+                    fillMesh.material.opacity = protoFillColor.getA();
+                    fillMesh.material.transparent = protoFillColor.getA() < 1.0;
+                } else {
+                    fillMesh.material.opacity = 0.3;
+                    fillMesh.material.transparent = true;
+                }
+            } else {
+                fillMesh.material.color.setRGB(0, 0, 0); // 默认黑色
+                fillMesh.material.opacity = 0.3;
+                fillMesh.material.transparent = true;
+            }
+
+            // *** 关键: 更新可见性 ***
+            fillMesh.visible = mat.getFilled();
+            fillMesh.material.needsUpdate = true;
+        }
+
+        // 2. 更新边线 (LineLoop)
+        if (lineMesh) {
+            const lineColor = mat.getColor();
+            if (lineColor) {
+                lineMesh.material.color.setRGB(lineColor.getR(), lineColor.getG(), lineColor.getB());
+                lineMesh.material.needsUpdate = true;
+            }
+        }
     }
 }
 

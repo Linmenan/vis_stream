@@ -1285,11 +1285,14 @@ visualization::Material VisualizationServer::convert_material(
   mat.mutable_color()->set_g(props.color.g);
   mat.mutable_color()->set_b(props.color.b);
   mat.mutable_color()->set_a(props.color.a);
+  mat.mutable_fill_color()->set_r(props.fill_color.r);
+  mat.mutable_fill_color()->set_g(props.fill_color.g);
+  mat.mutable_fill_color()->set_b(props.fill_color.b);
+  mat.mutable_fill_color()->set_a(props.fill_color.a);
   mat.set_point_size(props.point_size);
   mat.set_line_width(props.line_width);
   mat.set_legend(props.legend);
   mat.set_filled(props.filled);
-
   // 转换点形状
   switch (props.point_shape) {
     case Vis::MaterialProps::PointShape::SQUARE:
