@@ -2046,13 +2046,17 @@ class Plotter2D extends BasePlotter {
         if (material.getLineStyle && material.getLineStyle() === proto.visualization.Material.LineStyle.DASHED) {
             strokeDasharray = '3 2'; // SVG的虚线样式
         }
+        // 获取线宽，默认为2
+        const rawLineWidth = (material && material.getLineWidth) ? material.getLineWidth() : 2;
+        // 约束线宽，防止图标过粗 (例如限制在 1px 到 4px)
+        const iconStrokeWidth = Math.min(Math.max(rawLineWidth, 1), 4);
         let iconHtml = `<svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" class="legend-icon">`;
         switch (geomType) {
             case proto.visualization.Add2DObject.GeometryDataCase.LINE_2D:
             case proto.visualization.Add2DObject.GeometryDataCase.TRAJECTORY_2D:
                 iconHtml += `<line x1="2" y1="10" x2="18" y2="10" 
                                   stroke="${strokeColor}" 
-                                  stroke-width="2" 
+                                  stroke-width="${iconStrokeWidth}" 
                                   stroke-dasharray="${strokeDasharray}" />`;
                 break;
 
@@ -2060,14 +2064,14 @@ class Plotter2D extends BasePlotter {
                 iconHtml += `<polygon points="10,2 18,8 15,18 5,18 2,8"
                                   fill="${fillColor}" 
                                   stroke="${strokeColor}" 
-                                  stroke-width="2" 
+                                  stroke-width="${iconStrokeWidth}" 
                                   stroke-dasharray="${strokeDasharray}" />`;
                 break;
             case proto.visualization.Add2DObject.GeometryDataCase.BOX_2D:
                 iconHtml += `<rect x="3" y="3" width="14" height="14" 
                                   fill="${fillColor}" 
                                   stroke="${strokeColor}" 
-                                  stroke-width="2" 
+                                  stroke-width="${iconStrokeWidth}" 
                                   stroke-dasharray="${strokeDasharray}" />`;
                 break;
 
@@ -2075,7 +2079,7 @@ class Plotter2D extends BasePlotter {
                 iconHtml += `<circle cx="10" cy="10" r="7" 
                                   fill="${fillColor}" 
                                   stroke="${strokeColor}" 
-                                  stroke-width="2" 
+                                  stroke-width="${iconStrokeWidth}" 
                                   stroke-dasharray="${strokeDasharray}" />`;
                 break;
 
@@ -2083,7 +2087,7 @@ class Plotter2D extends BasePlotter {
                 iconHtml += `<path d="M 2 10 L 18 10 M 12 5 L 18 10 L 12 15" 
                                   fill="none" 
                                   stroke="${strokeColor}" 
-                                  stroke-width="2" />`;
+                                  stroke-width="${iconStrokeWidth}" />`;
                 break;
 
             case proto.visualization.Add2DObject.GeometryDataCase.POINT_2D:
@@ -2093,7 +2097,7 @@ class Plotter2D extends BasePlotter {
                         iconHtml += `<path d="M 4 4 L 16 16 M 16 4 L 4 16" 
                                           fill="none" 
                                           stroke="${strokeColor}" 
-                                          stroke-width="2" />`;
+                                          stroke-width="${iconStrokeWidth}" />`;
                         break;
                     case proto.visualization.Material.PointShape.DIAMOND:
                         iconHtml += `<path d="M 10 2 L 18 10 L 10 18 L 2 10 Z" 
