@@ -3027,6 +3027,7 @@ class ObjectFactory {
 
                 // 安全地获取颜色 - 修正这部分
                 let fillColor, lineColor;
+                let lineProtoColor = null; // 用于存储线条的 proto 颜色对象
                 let opacity;
                 // 1. 获取填充颜色 (Fill Color) 和 透明度 (Opacity)
                 if (mat && mat.hasFillColor && mat.hasFillColor()) {
@@ -3052,8 +3053,8 @@ class ObjectFactory {
 
                 // 2. 获取线条颜色 (Line Color)
                 if (mat && mat.getColor) {
-                    const colorObj = mat.getColor();
-                    lineColor = new THREE.Color(colorObj.getR(), colorObj.getG(), colorObj.getB());
+                    lineProtoColor = mat.getColor();
+                    lineColor = new THREE.Color(lineProtoColor.getR(), lineProtoColor.getG(), lineProtoColor.getB());
                 } else {
                     lineColor = new THREE.Color(0x006600); // 默认线条颜色
                 }
@@ -3149,7 +3150,9 @@ class ObjectFactory {
                     const lineMat = new LineMaterial({
                         color: lineColor.getHex(),
                         linewidth: lineWidth,
-                        resolution: resolution
+                        resolution: resolution,
+                        transparent: true,
+                        opacity: (lineProtoColor && typeof lineProtoColor.getA === 'function') ? lineProtoColor.getA() : 1.0
                     });
 
                     const lineMesh = new Line2(lineGeometry, lineMat);
