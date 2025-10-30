@@ -1,6 +1,9 @@
 import * as THREE from './lib/three.module.js';
 import { OrbitControls } from './lib/OrbitControls.js';
 // import * as proto from './lib/protocol/visualization_pb.js';
+import { Line2 } from './lib/Line2.js';
+import { LineGeometry } from './lib/LineGeometry.js';
+import { LineMaterial } from './lib/LineMaterial.js';
 
 const proto = window.proto;
 
@@ -197,7 +200,7 @@ class BasePlotter {
         this.container = container;
         this.windowId = windowId;
         this.sceneObjects = new Map();
-        this.factory = new ObjectFactory();
+        this.factory = new ObjectFactory(this);
         window.addEventListener('resize', this.onWindowResize, false);
         this.highlightedObjectId = null; // 跟踪当前高亮的对象ID
         this.highlightInterval = null;   // 跟踪闪烁的定时器
@@ -557,6 +560,11 @@ class Plotter3D extends BasePlotter {
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(width, height);
 
+        this.scene.traverse(child => {
+            if (child.material && child.material.isLineMaterial) {
+                child.material.resolution.set(width, height);
+            }
+        });
         // console.log(`🔄 3D窗口调整尺寸: ${width}x${height}`);
     }
     resetView = () => {
@@ -1038,10 +1046,14 @@ class CoordinateSystem {
 
         // 使用对称的默认视图
         const defaultSize = 10;
-        camera.left = -defaultSize;
-        camera.right = defaultSize;
+        // 修复A：必须使用画布宽高比
+        const aspect = this.canvasWidth / this.canvasHeight;
+        camera.left = -defaultSize * aspect;
+        camera.right = defaultSize * aspect;
         camera.bottom = -defaultSize;
         camera.top = defaultSize;
+        camera.near = 0.1;
+        camera.far = 1000;
         camera.zoom = 1;
         camera.position.set(0, 0, 10);
 
@@ -1064,12 +1076,11 @@ class CoordinateSystem {
  * 它会根据摄像机的视野动态调整网格密度和刻度标签。
  */
 class DynamicGrid {
-    constructor(scene, camera, coordinateSystem, controls = null, windowId) {
+    constructor(scene, camera, coordinateSystem, controls = null, xAxisContainer, yAxisContainer) {
         this.scene = scene;
         this.camera = camera;
         this.coordinateSystem = coordinateSystem;
         this.controls = controls;
-        this.windowId = windowId;
 
         this.labelsVisible = true;
         // 修复1：添加调试信息和错误处理
@@ -1083,32 +1094,13 @@ class DynamicGrid {
             return;
         }
 
-        // 修复2：正确的选择器路径
-        // canvasContainer的父元素是plot-area，在plot-area中查找轴容器
-        const plotArea = coordinateSystem.canvasContainer.parentElement;
+        this.xAxisContainer = xAxisContainer;
+        this.yAxisContainer = yAxisContainer;
 
-        if (!plotArea) {
-            console.error('❌ 找不到plot-area容器');
-            // 创建备用容器
+        if (!this.xAxisContainer || !this.yAxisContainer) {
+            console.warn('⚠️ 找不到轴容器，创建备用容器');
             this.createFallbackContainers();
-        } else {
-            // 使用正确的选择器
-            this.xAxisContainer = plotArea.querySelector(`#x-axis-${windowId}`);
-            this.yAxisContainer = plotArea.querySelector(`#y-axis-${windowId}`);
-
-            // console.log(`📊 找到轴容器:`, {
-            //     plotArea: !!plotArea,
-            //     xAxis: !!this.xAxisContainer,
-            //     yAxis: !!this.yAxisContainer
-            // });
-
-            // 如果找不到，创建备用容器
-            if (!this.xAxisContainer || !this.yAxisContainer) {
-                console.warn('⚠️ 找不到轴容器，创建备用容器');
-                this.createFallbackContainers(plotArea);
-            }
         }
-
         // 网格材质
         const material = new THREE.LineBasicMaterial({
             color: 0xcccccc,
@@ -1153,17 +1145,11 @@ class DynamicGrid {
     }
     // 修复3：添加备用容器创建方法
     createFallbackContainers(plotArea = null) {
-        if (!plotArea) {
-            // 如果找不到plotArea，在body中创建临时容器
-            plotArea = document.createElement('div');
-            plotArea.className = 'plot-area';
-            plotArea.style.cssText = 'position: absolute; top: 0; left: 0; width: 100px; height: 100px; z-index: -1;';
-            document.body.appendChild(plotArea);
-        }
+
 
         if (!this.xAxisContainer) {
             this.xAxisContainer = document.createElement('div');
-            this.xAxisContainer.id = `x-axis-${this.windowId}`;
+            this.xAxisContainer.id = `x-axis-fallback`;
             this.xAxisContainer.className = 'axis-container x-axis';
             this.xAxisContainer.style.cssText = 'position: relative; height: 30px; border-top: 1px solid #aaa;';
             plotArea.appendChild(this.xAxisContainer);
@@ -1172,7 +1158,7 @@ class DynamicGrid {
 
         if (!this.yAxisContainer) {
             this.yAxisContainer = document.createElement('div');
-            this.yAxisContainer.id = `y-axis-${this.windowId}`;
+            this.yAxisContainer.id = `y-axis-fallback`;
             this.yAxisContainer.className = 'axis-container y-axis';
             this.yAxisContainer.style.cssText = 'position: relative; width: 50px; border-right: 1px solid #aaa;';
             plotArea.appendChild(this.yAxisContainer);
@@ -1515,7 +1501,10 @@ class Plotter2D extends BasePlotter {
         this.controls.target.set(0, 0, 0);
         this.controls.update();
 
-        this.dynamicGrid = new DynamicGrid(this.scene, this.camera, this.coordinateSystem, this.controls);
+        this.dynamicGrid = new DynamicGrid(this.scene, this.camera, this.coordinateSystem, this.controls,
+            this.xAxisContainer, // <-- 传入已找到的元素
+            this.yAxisContainer  // <-- 传入已找到的元素
+        );
 
         // 事件监听
         this.controls.addEventListener('change', this.onControlsChange);
@@ -1749,60 +1738,8 @@ class Plotter2D extends BasePlotter {
                 top: sceneBBox.max.y
             };
 
-            // 计算数据范围
-            const { left, right, bottom, top } = dataBounds;
-            const dataWidth = right - left;
-            const dataHeight = top - bottom;
-            // 如果数据范围无效，使用默认适应
-            if (dataWidth === 0 || dataHeight === 0) {
-                this.coordinateSystem.fitToData(dataBounds, this.camera, this.controls, padding);
-                return;
-            }
-            // 计算画布宽高比和数据宽高比
-            const canvasAspect = this.coordinateSystem.canvasWidth / this.coordinateSystem.canvasHeight;
-            const dataAspect = dataWidth / dataHeight;
-            // console.log('📐 画布比例:', canvasAspect.toFixed(3), '数据比例:', dataAspect.toFixed(3));
-            // 添加padding
-            const paddedWidth = dataWidth * (1 + padding);
-            const paddedHeight = dataHeight * (1 + padding);
-
-            // 计算中心点
-            const centerX = (left + right) / 2;
-            const centerY = (bottom + top) / 2;
-
-            let viewWidth, viewHeight;
-
-            // 根据宽高比决定适应策略
-            if (dataAspect > canvasAspect) {
-                // 数据比画布"宽"，以宽度为准保持比例
-                viewWidth = paddedWidth;
-                viewHeight = viewWidth / canvasAspect;
-            } else {
-                // 数据比画布"高"，以高度为准保持比例
-                viewHeight = paddedHeight;
-                viewWidth = viewHeight * canvasAspect;
-            }
-
-            // 确保适应后的范围至少包含原始数据范围（考虑padding）
-            if (viewHeight < paddedHeight) {
-                viewHeight = paddedHeight;
-                viewWidth = viewHeight * canvasAspect;
-            }
-            if (viewWidth < paddedWidth) {
-                viewWidth = paddedWidth;
-                viewHeight = viewWidth / canvasAspect;
-            }
-
-            // 构建保持比例的新边界
-            const proportionalBounds = {
-                left: centerX - viewWidth / 2,
-                right: centerX + viewWidth / 2,
-                bottom: centerY - viewHeight / 2,
-                top: centerY + viewHeight / 2
-            };
-
             // 使用新的边界进行适应（padding设为0，因为已经在计算中考虑了）
-            this.coordinateSystem.fitToData(proportionalBounds, this.camera, this.controls, 0);
+            this.coordinateSystem.fitToData(dataBounds, this.camera, this.controls, padding);
             this.forceImmediateRender();
 
         } catch (error) {
@@ -1823,10 +1760,17 @@ class Plotter2D extends BasePlotter {
         this.sceneObjects.forEach((obj) => {
             try {
                 const objBBox = new THREE.Box3().setFromObject(obj);
-                if (!objBBox.isEmpty()) {
+
+                // --- 修复开始：检查 NaN/Infinity ---
+                // 仅在包围盒有效时才合并
+                if (!objBBox.isEmpty() &&
+                    isFinite(objBBox.min.x) && isFinite(objBBox.min.y) && isFinite(objBBox.min.z) &&
+                    isFinite(objBBox.max.x) && isFinite(objBBox.max.y) && isFinite(objBBox.max.z)) {
                     bbox.union(objBBox);
                     hasValidGeometry = true;
                 }
+                // --- 修复结束 ---
+
             } catch (error) {
                 console.error('边界框计算失败:', error);
             }
@@ -1924,6 +1868,13 @@ class Plotter2D extends BasePlotter {
         this.camera.left = -this.camera.top * aspect;
         this.camera.right = this.camera.top * aspect;
         this.camera.updateProjectionMatrix();
+
+        // --- 更新所有 LineMaterial 的分辨率 ---
+        this.scene.traverse(child => {
+            if (child.material && child.material.isLineMaterial) {
+                child.material.resolution.set(width, height);
+            }
+        });
 
         if (this.isDynamicFitEnabled) {
             // 延迟执行避免频繁调整
@@ -2289,6 +2240,10 @@ const PointTextureFactory = {
  * Creates and updates Three.js objects from Protobuf data.
  */
 class ObjectFactory {
+    constructor(plotter) {
+        // 存储 plotter 以便访问 canvasContainer 获取分辨率
+        this.plotter = plotter;
+    }
     // --- 3D Methods ---
     create3D(cmd) {
         const data = cmd.getGeometryDataCase();
@@ -2370,13 +2325,16 @@ class ObjectFactory {
                 const points = geom.getPointsList().map(p =>
                     new THREE.Vector3(p.getPosition().getX(), p.getPosition().getY(), 0));
 
-                const geometry = new THREE.BufferGeometry().setFromPoints(points);
                 const material = this.createLineMaterial(mat);
                 material.depthTest = false; // 禁用深度测试
-                material.transparent = true;
-                material.opacity = 0.8;
+                const positions = [];
+                points.forEach(p => positions.push(p.x, p.y, p.z));
+                const geometry = new LineGeometry();
+                geometry.setPositions(positions);
 
-                obj = new THREE.Line(geometry, material);
+                obj = new Line2(geometry, material);
+                obj.computeLineDistances(); // 用于虚线
+
                 obj.renderOrder = 998; // 设置高渲染顺序
 
                 // console.log(`📏 创建3D窗口中的2D线，点数: ${points.length}`);
@@ -2438,14 +2396,15 @@ class ObjectFactory {
 
                 const points = curve.getPoints(50); // 50个点使圆形光滑
                 const vertices = points.map(p => new THREE.Vector3(p.x, p.y, 0));
-                const geometry = new THREE.BufferGeometry().setFromPoints(vertices);
 
                 const material = this.createLineMaterial(mat);
-                material.depthTest = false;
-                material.transparent = true;
-                material.opacity = 0.8;
+                const positions = [];
+                vertices.forEach(p => positions.push(p.x, p.y, p.z));
+                const geometry = new LineGeometry();
+                geometry.setPositions(positions);
 
-                obj = new THREE.Line(geometry, material);
+                obj = new Line2(geometry, material);
+                obj.computeLineDistances();
                 obj.renderOrder = 996;
                 // console.log(`⭕ 创建圆形: 中心(${center.getX()}, ${center.getY()}), 半径: ${radius}`);
                 break;
@@ -2481,14 +2440,15 @@ class ObjectFactory {
 
                 // 闭合矩形（添加第一个点到最后）
                 const closedCorners = [...worldCorners, worldCorners[0]];
-                const geometry = new THREE.BufferGeometry().setFromPoints(closedCorners);
 
                 const material = this.createLineMaterial(mat);
-                material.depthTest = false;
-                material.transparent = true;
-                material.opacity = 0.8;
+                const positions = [];
+                closedCorners.forEach(p => positions.push(p.x, p.y, p.z));
+                const geometry = new LineGeometry();
+                geometry.setPositions(positions);
 
-                obj = new THREE.Line(geometry, material);
+                obj = new Line2(geometry, material);
+                obj.computeLineDistances();
                 obj.renderOrder = 995;
                 // console.log(`📦 创建2D矩形: 中心(${center.getX()}, ${center.getY()}), 角度: ${theta}, 尺寸: ${w}x${lf + lr}`);
                 break;
@@ -2498,13 +2458,17 @@ class ObjectFactory {
                 const vertices = geom.getVerticesList().map(p =>
                     new THREE.Vector3(p.getPosition().getX(), p.getPosition().getY(), 0));
 
-                const geometry = new THREE.BufferGeometry().setFromPoints(vertices);
                 const material = this.createLineMaterial(mat);
-                material.depthTest = false;
-                material.transparent = true;
-                material.opacity = 0.8;
+                if (vertices.length > 0) {
+                    vertices.push(vertices[0].clone()); // 闭合 Line2
+                }
+                const positions = [];
+                vertices.forEach(p => positions.push(p.x, p.y, p.z));
+                const geometry = new LineGeometry();
+                geometry.setPositions(positions);
 
-                obj = new THREE.LineLoop(geometry, material);
+                obj = new Line2(geometry, material); // LineLoop 替换为 Line2
+                obj.computeLineDistances();
                 obj.renderOrder = 994;
                 // console.log(`🔺 创建多边形，顶点数: ${vertices.length}`);
                 break;
@@ -2554,14 +2518,15 @@ class ObjectFactory {
                     new THREE.Vector3(p.getPosition().getX(), p.getPosition().getY(), 0));
 
                 // 创建新的几何体
-                const newGeometry = new THREE.BufferGeometry().setFromPoints(points);
-
-                // 保持原有材质
-                const oldMaterial = obj.material;
+                const positions = [];
+                points.forEach(p => positions.push(p.x, p.y, p.z));
+                const newGeometry = new LineGeometry();
+                newGeometry.setPositions(positions);
 
                 // 替换几何体
                 obj.geometry.dispose();
                 obj.geometry = newGeometry;
+                obj.computeLineDistances();
 
                 // console.log(`📏 更新2D线，新点数: ${points.length}`);
                 break;
@@ -2600,12 +2565,15 @@ class ObjectFactory {
 
                 const points = curve.getPoints(50);
                 const vertices = points.map(p => new THREE.Vector3(p.x, p.y, 0));
-                const newGeometry = new THREE.BufferGeometry().setFromPoints(vertices);
+                const positions = [];
+                vertices.forEach(p => positions.push(p.x, p.y, p.z));
+                const newGeometry = new LineGeometry();
+                newGeometry.setPositions(positions);
 
-                // 保持原有材质
-                const oldMaterial = obj.material;
+                // 替换几何体
                 obj.geometry.dispose();
                 obj.geometry = newGeometry;
+                obj.computeLineDistances();
 
                 // console.log(`⭕ 更新圆形: 中心(${center.getX()}, ${center.getY()}), 半径: ${radius}`);
                 break;
@@ -2639,12 +2607,15 @@ class ObjectFactory {
                 });
 
                 const closedCorners = [...worldCorners, worldCorners[0]];
-                const newGeometry = new THREE.BufferGeometry().setFromPoints(closedCorners);
+                const positions = [];
+                closedCorners.forEach(p => positions.push(p.x, p.y, p.z));
+                const newGeometry = new LineGeometry();
+                newGeometry.setPositions(positions);
 
-                // 保持原有材质
-                const oldMaterial = obj.material;
+                // 替换几何体
                 obj.geometry.dispose();
                 obj.geometry = newGeometry;
+                obj.computeLineDistances();
 
                 // console.log(`📦 更新2D矩形: 中心(${center.getX()}, ${center.getY()}), 角度: ${theta}`);
                 break;
@@ -2654,9 +2625,19 @@ class ObjectFactory {
                 const vertices = geom.getVerticesList().map(p =>
                     new THREE.Vector3(p.getPosition().getX(), p.getPosition().getY(), 0));
 
-                const newGeometry = new THREE.BufferGeometry().setFromPoints(vertices);
+                if (vertices.length > 0) {
+                    vertices.push(vertices[0].clone()); // 闭合
+                }
+                const positions = [];
+                vertices.forEach(p => positions.push(p.x, p.y, p.z));
+                const newGeometry = new LineGeometry();
+                newGeometry.setPositions(positions);
+
+                // 替换几何体
                 obj.geometry.dispose();
                 obj.geometry = newGeometry;
+                obj.computeLineDistances();
+
                 // console.log(`🔺 更新多边形，新顶点数: ${vertices.length}`);
                 break;
             }
@@ -2668,15 +2649,40 @@ class ObjectFactory {
         const obj = this.create2DPlaceholder(cmd);
         // 对于简单类型，直接在这里更新
         const data = cmd.getGeometryDataCase();
+        const objectId = (cmd && typeof cmd.getId === 'function') ? cmd.getId() : 'N/A_Create';
         if (data === proto.visualization.Add2DObject.GeometryDataCase.POINT_2D) {
-            const pos = cmd.getPoint2d().getPosition();
-            obj.geometry.attributes.position.setXYZ(0, pos.getX(), pos.getY(), 0);
+            const point2d = cmd.getPoint2d();
+            let safeX = 0, safeY = 0;
+            let rawX, rawY;
+
+            if (point2d && point2d.getPosition()) {
+                const pos = point2d.getPosition();
+                rawX = pos.getX();
+                rawY = pos.getY();
+                safeX = (typeof rawX === 'number' && isFinite(rawX)) ? rawX : 0;
+                safeY = (typeof rawY === 'number' && isFinite(rawY)) ? rawY : 0;
+
+                if (safeX !== rawX || safeY !== rawY) {
+                    console.warn(`[DEBUG ${objectId}/POINT_2D @ CREATE] Sanitized NaN/invalid data: raw=(${rawX}, ${rawY}), safe=(${safeX}, ${safeY})`);
+                }
+            } else {
+                console.error(`[DEBUG ${objectId}/POINT_2D @ CREATE] Invalid position data!`);
+            }
+            // --- 应用清理后的值 ---
+            obj.geometry.attributes.position.setXYZ(0, safeX, safeY, 0);
+            obj.geometry.attributes.position.needsUpdate = true; // 确保更新生效
+
         } else if (data === proto.visualization.Add2DObject.GeometryDataCase.POSE_2D) {
+            // Pose update is usually less prone to NaN geometry
             this.update2DPose(obj, cmd.getPose2d());
         } else {
-            // 对于复杂类型，调用 update2D 来填充几何
+            // 对于复杂类型，调用 update2D (它内部已有清理逻辑)
             const updateCmd = this.packageAsUpdateCmd(cmd);
-            this.update2D(obj, updateCmd, cmd.getMaterial());
+            if (updateCmd) { // 增加检查，确保 packageAsUpdateCmd 成功
+                this.update2D(obj, updateCmd, cmd.getMaterial());
+            } else {
+                console.error(`[DEBUG ${objectId} @ CREATE] Failed to package update command for type ${data}`);
+            }
         }
         return obj;
     }
@@ -2684,13 +2690,30 @@ class ObjectFactory {
     update2D(obj, cmd, material) {
         const mat = material || obj.material;
         const data = cmd.getGeometryDataCase();
-
+        const objectId = cmd.getId ? cmd.getId() : 'N/A'; // 获取对象ID用于调试
         // console.log(`🔄 更新2D对象，类型: ${data}, obj类型: ${obj.type}, isMesh: ${obj.isMesh}`);
 
         switch (data) {
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.POINT_2D: {
-                const pos = cmd.getPoint2d().getPosition();
-                obj.geometry.attributes.position.setXYZ(0, pos.getX(), pos.getY(), 0);
+                const point2d = cmd.getPoint2d();
+                let safeX = 0, safeY = 0;
+                let rawX, rawY;
+
+                if (point2d && point2d.getPosition()) {
+                    const pos = point2d.getPosition();
+                    rawX = pos.getX();
+                    rawY = pos.getY();
+                    safeX = (typeof rawX === 'number' && isFinite(rawX)) ? rawX : 0;
+                    safeY = (typeof rawY === 'number' && isFinite(rawY)) ? rawY : 0;
+
+                    if (safeX !== rawX || safeY !== rawY) {
+                        console.warn(`[DEBUG ${objectId}/POINT_2D] Sanitized NaN/invalid data: raw=(${rawX}, ${rawY}), safe=(${safeX}, ${safeY})`);
+                    }
+                } else {
+                    console.error(`[DEBUG ${objectId}/POINT_2D] Invalid position data!`);
+                }
+
+                obj.geometry.attributes.position.setXYZ(0, safeX, safeY, 0);
                 obj.geometry.attributes.position.needsUpdate = true;
                 break;
             }
@@ -2700,24 +2723,69 @@ class ObjectFactory {
             }
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.LINE_2D: {
                 const geom = cmd.getLine2d();
-                const points = geom.getPointsList().map(p => new THREE.Vector3(p.getPosition().getX(), p.getPosition().getY(), 0));
+                let points = []; // Initialize points array
+
+                if (geom && typeof geom.getPointsList === 'function') {
+                    // --- 修正：在 map 回调中加入 index 参数 ---
+                    points = geom.getPointsList().map((p, index) => {
+                        const pos = p.getPosition();
+                        if (!pos) {
+                            console.error(`[DEBUG ${objectId}/LINE_2D] Point ${index} has no position data!`);
+                            return new THREE.Vector3(0, 0, 0);
+                        }
+                        const x = pos.getX();
+                        const y = pos.getY();
+                        const safeX = (typeof x === 'number' && isFinite(x)) ? x : 0;
+                        const safeY = (typeof y === 'number' && isFinite(y)) ? y : 0;
+                        if (safeX !== x || safeY !== y) {
+                            console.warn(`[DEBUG ${objectId}/LINE_2D] Sanitized NaN/invalid data at index ${index}: raw=(${x}, ${y}), safe=(${safeX}, ${safeY})`);
+                        }
+                        return new THREE.Vector3(safeX, safeY, 0);
+                    });
+                } else {
+                    console.error(`[DEBUG ${objectId}/LINE_2D] Invalid geometry data!`);
+                }
+
                 if (points.length === 0) {
-                    // console.warn("Line2D update with 0 points, skipping geometry creation.");
-                    // 清空现有几何体（如果需要）
-                    obj.geometry.dispose();
-                    obj.geometry = new THREE.BufferGeometry(); // 设为空几何体
+                    obj.geometry.setPositions([]);
+                    // obj.geometry.dispose();
+                    // obj.geometry = new LineGeometry();
+                    // obj.geometry.boundingBox = new THREE.Box3();
                     break;
                 }
-                obj.geometry.dispose(); // Dispose old geometry
-                obj.geometry = new THREE.BufferGeometry().setFromPoints(points);
-                if (obj.material.isLineDashedMaterial) {
-                    obj.computeLineDistances();
-                }
+                const positions = [];
+                points.forEach(p => positions.push(p.x, p.y, p.z));
+                obj.geometry.dispose();
+                obj.geometry = new LineGeometry();
+                obj.geometry.setPositions(positions);
+                obj.geometry.computeBoundingBox();
+                obj.computeLineDistances();
                 break;
             }
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.POLYGON: {
                 const geom = cmd.getPolygon();
-                const vertices = geom.getVerticesList().map(p => new THREE.Vector2(p.getPosition().getX(), p.getPosition().getY()));
+                let vertices = []; // Initialize vertices array
+
+                if (geom && typeof geom.getVerticesList === 'function') {
+                    // --- 修正：在 map 回调中加入 index 参数 ---
+                    vertices = geom.getVerticesList().map((p, index) => {
+                        const pos = p.getPosition();
+                        if (!pos) {
+                            console.error(`[DEBUG ${objectId}/POLYGON] Vertex ${index} has no position data!`);
+                            return new THREE.Vector2(0, 0);
+                        }
+                        const x = pos.getX();
+                        const y = pos.getY();
+                        const safeX = (typeof x === 'number' && isFinite(x)) ? x : 0;
+                        const safeY = (typeof y === 'number' && isFinite(y)) ? y : 0;
+                        if (safeX !== x || safeY !== y) {
+                            console.warn(`[DEBUG ${objectId}/POLYGON] Sanitized NaN/invalid data at vertex ${index}: raw=(${x}, ${y}), safe=(${safeX}, ${safeY})`);
+                        }
+                        return new THREE.Vector2(safeX, safeY);
+                    });
+                } else {
+                    console.error(`[DEBUG ${objectId}/POLYGON] Invalid geometry data!`);
+                }
 
                 if (vertices.length === 0) {
                     // console.warn("Polygon update with 0 vertices, skipping geometry creation.");
@@ -2729,8 +2797,10 @@ class ObjectFactory {
                         fillMesh.geometry = new THREE.BufferGeometry();
                     }
                     if (lineMesh) {
-                        lineMesh.geometry.dispose();
-                        lineMesh.geometry = new THREE.BufferGeometry();
+                        lineMesh.geometry.setPositions([]);
+                        // lineMesh.geometry.dispose();
+                        // lineMesh.geometry = new LineGeometry();
+                        // lineMesh.geometry.boundingBox = new THREE.Box3();
                     }
                     break; // 停止执行
                 }
@@ -2753,8 +2823,21 @@ class ObjectFactory {
                 // 2. 更新边线几何体
                 if (lineMesh) {
                     const points = vertices.map(v => new THREE.Vector3(v.x, v.y, 0));
+                    // 1. Line2 不会自动闭合，必须手动添加第一个点到末尾
+                    if (points.length > 0) {
+                        points.push(points[0].clone());
+                    }
+
+                    // 2. 转换为扁平数组
+                    const positions = [];
+                    points.forEach(p => positions.push(p.x, p.y, p.z));
+
+                    // 3. 设置 LineGeometry
                     lineMesh.geometry.dispose();
-                    lineMesh.geometry = new THREE.BufferGeometry().setFromPoints(points);
+                    lineMesh.geometry = new LineGeometry();
+                    lineMesh.geometry.setPositions(positions);
+                    lineMesh.geometry.computeBoundingBox(); // 计算包围盒
+                    lineMesh.computeLineDistances();
 
                     // 仅在 create2D (mat 存在) 时设置初始材质
                     if (mat && !fillMesh) { // 仅当 fillMesh 不存在时单独设置
@@ -2765,8 +2848,31 @@ class ObjectFactory {
             }
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.CIRCLE: {
                 const geom = cmd.getCircle();
-                const center = geom.getCenter();
-                const radius = geom.getRadius();
+                const objectId = (cmd && typeof cmd.getId === 'function') ? cmd.getId() : 'N/A_Update'; // Get ID for logging
+                let safeX = 0, safeY = 0, safeRadius = 1;
+                let rawX, rawY, rawRadius;
+
+                // --- 数据清理和检查 ---
+                if (geom && geom.getCenter()) {
+                    // *** 关键：将 center 定义移到检查内部 ***
+                    const center = geom.getCenter();
+                    rawX = center.getX();
+                    rawY = center.getY();
+                    safeX = (typeof rawX === 'number' && isFinite(rawX)) ? rawX : 0;
+                    safeY = (typeof rawY === 'number' && isFinite(rawY)) ? rawY : 0;
+
+                    rawRadius = geom.getRadius();
+                    safeRadius = (typeof rawRadius === 'number' && isFinite(rawRadius) && rawRadius > 0) ? rawRadius : 0.1;
+                } else {
+                    rawX = rawY = rawRadius = undefined;
+                    console.error(`[DEBUG ${objectId}/CIRCLE] Invalid geometry data (missing center or geom)!`);
+                    // 使用默认值确保后续代码不崩溃
+                    safeX = 0; safeY = 0; safeRadius = 0.1;
+                }
+
+                if (safeX !== rawX || safeY !== rawY || safeRadius !== rawRadius) {
+                    console.warn(`[DEBUG ${objectId}/CIRCLE] Sanitized NaN/invalid data: raw=(${rawX}, ${rawY}, r=${rawRadius}), safe=(${safeX}, ${safeY}, r=${safeRadius})`);
+                }
 
                 const fillMesh = obj.getObjectByName("shape_fill");
                 const lineMesh = obj.getObjectByName("shape_line");
@@ -2774,8 +2880,8 @@ class ObjectFactory {
                 // 1. 更新填充几何体
                 if (fillMesh) {
                     fillMesh.geometry.dispose();
-                    fillMesh.geometry = new THREE.CircleGeometry(radius, 32);
-                    fillMesh.position.set(center.getX(), center.getY(), -0.01);
+                    fillMesh.geometry = new THREE.CircleGeometry(safeRadius, 32);
+                    fillMesh.position.set(safeX, safeY, -0.01);
 
                     if (mat) {
                         this.applyMaterialLogic2D(fillMesh, lineMesh, mat);
@@ -2785,14 +2891,22 @@ class ObjectFactory {
                 // 2. 更新边线几何体
                 if (lineMesh) {
                     const curve = new THREE.EllipseCurve(
-                        center.getX(), center.getY(),
-                        radius, radius,
+                        safeX, safeY,
+                        safeRadius, safeRadius,
                         0, 2 * Math.PI,
                         false, 0
                     );
                     const points = curve.getPoints(50);
+                    // 1. 转换为扁平数组
+                    const positions = [];
+                    points.forEach(p => positions.push(p.x, p.y, 0));
+
+                    // 2. 设置 LineGeometry
                     lineMesh.geometry.dispose();
-                    lineMesh.geometry = new THREE.BufferGeometry().setFromPoints(points);
+                    lineMesh.geometry = new LineGeometry();
+                    lineMesh.geometry.setPositions(positions);
+                    lineMesh.geometry.computeBoundingBox(); // 计算包围盒
+                    lineMesh.computeLineDistances();
 
                     if (mat && !fillMesh) {
                         this.applyMaterialLogic2D(fillMesh, lineMesh, mat);
@@ -2803,27 +2917,55 @@ class ObjectFactory {
 
             case proto.visualization.Update2DObjectGeometry.GeometryDataCase.BOX_2D: {
                 const geom = cmd.getBox2d();
-                // ... (计算 worldCornersV2 和 worldCornersV3 的逻辑) ...
-                const center = geom.getCenter().getPosition();
-                const theta = geom.getCenter().getTheta();
-                const w = geom.getWidth();
-                const lf = geom.getLengthFront();
-                const lr = geom.getLengthRear();
+                let safeX = 0, safeY = 0, safeTheta = 0, safeW = 0.1, safeLf = 0.1, safeLr = 0.1;
+                let rawX, rawY, rawTheta, rawW, rawLf, rawLr;
+
+                if (geom && geom.getCenter()) {
+                    const center = geom.getCenter();
+                    const centerPos = center.getPosition();
+                    if (centerPos) {
+                        rawX = centerPos.getX();
+                        rawY = centerPos.getY();
+                        safeX = (typeof rawX === 'number' && isFinite(rawX)) ? rawX : 0;
+                        safeY = (typeof rawY === 'number' && isFinite(rawY)) ? rawY : 0;
+                    }
+                    rawTheta = center.getTheta();
+                    safeTheta = (typeof rawTheta === 'number' && isFinite(rawTheta)) ? rawTheta : 0;
+
+                    rawW = geom.getWidth();
+                    rawLf = geom.getLengthFront();
+                    rawLr = geom.getLengthRear();
+                    safeW = (typeof rawW === 'number' && isFinite(rawW) && rawW > 0) ? rawW : 0.1;
+                    safeLf = (typeof rawLf === 'number' && isFinite(rawLf) && rawLf > 0) ? rawLf : 0.1;
+                    safeLr = (typeof rawLr === 'number' && isFinite(rawLr) && rawLr > 0) ? rawLr : 0.1;
+                } else {
+                    rawX = rawY = rawTheta = rawW = rawLf = rawLr = undefined;
+                    console.error(`[DEBUG ${objectId}/BOX_2D] Invalid geometry data!`);
+                }
+
+                if (safeX !== rawX || safeY !== rawY || safeTheta !== rawTheta || safeW !== rawW || safeLf !== rawLf || safeLr !== rawLr) {
+                    console.warn(`[DEBUG ${objectId}/BOX_2D] Sanitized NaN/invalid data:`);
+                    console.warn(`  raw= (x: ${rawX}, y: ${rawY}, th: ${rawTheta}, w: ${rawW}, lf: ${rawLf}, lr: ${rawLr})`);
+                    console.warn(`  safe= (x: ${safeX}, y: ${safeY}, th: ${safeTheta}, w: ${safeW}, lf: ${safeLf}, lr: ${safeLr})`);
+                }
+
                 const localCorners = [
-                    new THREE.Vector2(-lr, w / 2),
-                    new THREE.Vector2(lf, w / 2),
-                    new THREE.Vector2(lf, -w / 2),
-                    new THREE.Vector2(-lr, -w / 2)
+                    new THREE.Vector2(-safeLr, safeW / 2),
+                    new THREE.Vector2(safeLf, safeW / 2),
+                    new THREE.Vector2(safeLf, -safeW / 2),
+                    new THREE.Vector2(-safeLr, -safeW / 2)
                 ];
+
                 const worldCornersV2 = localCorners.map(corner => {
                     const rotated = new THREE.Vector2(
-                        corner.x * Math.cos(theta) - corner.y * Math.sin(theta),
-                        corner.x * Math.sin(theta) + corner.y * Math.cos(theta)
+                        corner.x * Math.cos(safeTheta) - corner.y * Math.sin(safeTheta),
+                        corner.x * Math.sin(safeTheta) + corner.y * Math.cos(safeTheta)
                     );
-                    rotated.x += center.getX();
-                    rotated.y += center.getY();
+                    rotated.x += safeX;
+                    rotated.y += safeY;
                     return rotated;
                 });
+
                 const worldCornersV3 = worldCornersV2.map(v => new THREE.Vector3(v.x, v.y, 0));
 
                 const fillMesh = obj.getObjectByName("shape_fill");
@@ -2842,8 +2984,22 @@ class ObjectFactory {
 
                 // 2. 更新边线几何体
                 if (lineMesh) {
+                    // 1. Line2 不会自动闭合，必须手动添加第一个点到末尾
+                    const closedCorners = [...worldCornersV3];
+                    if (closedCorners.length > 0) {
+                        closedCorners.push(closedCorners[0].clone());
+                    }
+
+                    // 2. 转换为扁平数组
+                    const positions = [];
+                    closedCorners.forEach(p => positions.push(p.x, p.y, p.z));
+
+                    // 3. 设置 LineGeometry
                     lineMesh.geometry.dispose();
-                    lineMesh.geometry = new THREE.BufferGeometry().setFromPoints(worldCornersV3);
+                    lineMesh.geometry = new LineGeometry();
+                    lineMesh.geometry.setPositions(positions);
+                    lineMesh.geometry.computeBoundingBox(); // 计算包围盒
+                    lineMesh.computeLineDistances();
 
                     if (mat && !fillMesh) {
                         this.applyMaterialLogic2D(fillMesh, lineMesh, mat);
@@ -2867,87 +3023,136 @@ class ObjectFactory {
 
                 // 安全地获取颜色 - 修正这部分
                 let fillColor, lineColor;
-
-                // 获取填充颜色
+                let opacity;
+                // 1. 获取填充颜色 (Fill Color) 和 透明度 (Opacity)
                 if (mat && mat.hasFillColor && mat.hasFillColor()) {
+                    // 1.1 如果提供了 fill_color，使用它
                     const fillColorObj = mat.getFillColor();
                     fillColor = new THREE.Color(fillColorObj.getR(), fillColorObj.getG(), fillColorObj.getB());
+
+                    // 并且使用 fill_color 的 Alpha 通道
+                    opacity = (typeof fillColorObj.getA === 'function') ? fillColorObj.getA() : 1.0;
+
                 } else if (mat && mat.getColor) {
+                    // 1.2 如果没有 fill_color，回退到 line_color 作为填充
                     const colorObj = mat.getColor();
                     fillColor = new THREE.Color(colorObj.getR(), colorObj.getG(), colorObj.getB());
+
+                    // 并且使用默认的 0.3 透明度 (与 Polygon/Box 逻辑一致)
+                    opacity = 0.3;
                 } else {
+                    // 1.3 紧急默认值
                     fillColor = new THREE.Color(0x00ff00); // 默认颜色
+                    opacity = 0.3; // 默认透明度
                 }
 
-                // 获取线条颜色
+                // 2. 获取线条颜色 (Line Color)
                 if (mat && mat.getColor) {
                     const colorObj = mat.getColor();
                     lineColor = new THREE.Color(colorObj.getR(), colorObj.getG(), colorObj.getB());
                 } else {
-                    lineColor = new THREE.Color(0x006600); // 默认颜色
+                    lineColor = new THREE.Color(0x006600); // 默认线条颜色
                 }
 
-                const opacity = 0.3;
-                const lineWidth = 1;
+                // 3. 获取线宽
+                const lineWidth = (mat && mat.getLineWidth) ? mat.getLineWidth() : 1;
 
                 // console.log(`🎨 TRAJECTORY颜色 - 填充: ${fillColor.getHexString()}, 线条: ${lineColor.getHexString()}`);
 
                 poses.forEach((pose, index) => {
-                    const center = pose.getCenter();
-                    const centerX = center.getPosition().getX();
-                    const centerY = center.getPosition().getY();
+                    let safeX = 0, safeY = 0, safeTheta = 0, safeW = 0.1, safeLf = 0.1, safeLr = 0.1;
+                    let rawX, rawY, rawTheta, rawW, rawLf, rawLr;
 
-                    // 从 center 中获取朝向角 theta，就像 BOX_2D 中一样
-                    const theta = center.getTheta();
+                    if (pose && pose.getCenter()) {
+                        const center = pose.getCenter();
+                        const centerPos = center.getPosition();
+                        if (centerPos) {
+                            rawX = centerPos.getX();
+                            rawY = centerPos.getY();
+                            safeX = (typeof rawX === 'number' && isFinite(rawX)) ? rawX : 0;
+                            safeY = (typeof rawY === 'number' && isFinite(rawY)) ? rawY : 0;
+                        } else {
+                            // centerPos 为 null 或 undefined
+                            rawX = undefined;
+                            rawY = undefined;
+                            safeX = 0;
+                            safeY = 0;
+                        }
+                        rawTheta = center.getTheta();
+                        safeTheta = (typeof rawTheta === 'number' && isFinite(rawTheta)) ? rawTheta : 0;
 
-                    // 获取安全盒尺寸 - 需要根据 TRAJECTORY_2D 的实际字段名调整
-                    // 这里假设和 BOX_2D 有相同的字段名
-                    const w = pose.getWidth ? pose.getWidth() : 1.0;
-                    const lf = pose.getLengthFront ? pose.getLengthFront() : 1.0;
-                    const lr = pose.getLengthRear ? pose.getLengthRear() : 1.0;
+                        rawW = pose.getWidth ? pose.getWidth() : 0.1;
+                        rawLf = pose.getLengthFront ? pose.getLengthFront() : 0.1;
+                        rawLr = pose.getLengthRear ? pose.getLengthRear() : 0.1;
+                        safeW = (typeof rawW === 'number' && isFinite(rawW) && rawW > 0) ? rawW : 0.1;
+                        safeLf = (typeof rawLf === 'number' && isFinite(rawLf) && rawLf > 0) ? rawLf : 0.1;
+                        safeLr = (typeof rawLr === 'number' && isFinite(rawLr) && rawLr > 0) ? rawLr : 0.1;
+                    } else {
+                        rawX = rawY = rawTheta = rawW = rawLf = rawLr = undefined;
+                        console.error(`[DEBUG ${objectId}/TRAJECTORY_2D @ index ${index}] Invalid pose data!`);
+                    }
 
-                    // 计算矩形的四个角点（与 BOX_2D 相同的逻辑）
+                    if (safeX !== rawX || safeY !== rawY || safeTheta !== rawTheta || safeW !== rawW || safeLf !== rawLf || safeLr !== rawLr) {
+                        console.warn(`[DEBUG ${objectId}/TRAJECTORY_2D @ index ${index}] Sanitized NaN/invalid data:`);
+                        console.warn(`  raw= (x: ${rawX}, y: ${rawY}, th: ${rawTheta}, w: ${rawW}, lf: ${rawLf}, lr: ${rawLr})`);
+                        console.warn(`  safe= (x: ${safeX}, y: ${safeY}, th: ${safeTheta}, w: ${safeW}, lf: ${safeLf}, lr: ${safeLr})`);
+                    }
+
                     const localCorners = [
-                        new THREE.Vector2(-lr, w / 2),
-                        new THREE.Vector2(lf, w / 2),
-                        new THREE.Vector2(lf, -w / 2),
-                        new THREE.Vector2(-lr, -w / 2)
+                        new THREE.Vector2(-safeLr, safeW / 2),
+                        new THREE.Vector2(safeLf, safeW / 2),
+                        new THREE.Vector2(safeLf, -safeW / 2),
+                        new THREE.Vector2(-safeLr, -safeW / 2)
                     ];
 
-                    // 旋转并平移角点
                     const worldCorners = localCorners.map(corner => {
                         const rotated = new THREE.Vector2(
-                            corner.x * Math.cos(theta) - corner.y * Math.sin(theta),
-                            corner.x * Math.sin(theta) + corner.y * Math.cos(theta)
+                            corner.x * Math.cos(safeTheta) - corner.y * Math.sin(safeTheta),
+                            corner.x * Math.sin(safeTheta) + corner.y * Math.cos(safeTheta)
                         );
                         return new THREE.Vector3(
-                            rotated.x + centerX,
-                            rotated.y + centerY,
+                            rotated.x + safeX,
+                            rotated.y + safeY,
                             0
                         );
                     });
 
-                    // 创建填充的矩形 - 使用 ShapeGeometry
+                    // 创建填充的矩形
                     const shape = new THREE.Shape(worldCorners.map(v => new THREE.Vector2(v.x, v.y)));
                     const fillGeometry = new THREE.ShapeGeometry(shape);
                     const fillMesh = new THREE.Mesh(fillGeometry, new THREE.MeshBasicMaterial({
-                        color: fillColor, // 使用修正后的颜色
+                        color: fillColor,
                         transparent: true,
-                        opacity: opacity,
+                        opacity: opacity, // <--- 现在使用动态获取的 opacity
                         side: THREE.DoubleSide
                     }));
                     fillMesh.position.z = -0.01;
                     fillMesh.name = `trajectory_fill_${index}`;
 
-                    // 创建线框 - 使用闭合的线
+                    // --- (创建 Line2 和 LineMaterial 的逻辑不变) ---
                     const closedCorners = [...worldCorners, worldCorners[0]];
-                    const lineGeometry = new THREE.BufferGeometry().setFromPoints(closedCorners);
-                    const lineMesh = new THREE.Line(lineGeometry, new THREE.LineBasicMaterial({
-                        color: lineColor, // 使用修正后的颜色
-                        linewidth: lineWidth
-                    }));
+                    const positions = [];
+                    closedCorners.forEach(p => positions.push(p.x, p.y, p.z));
+                    const lineGeometry = new LineGeometry();
+                    lineGeometry.setPositions(positions);
+                    lineGeometry.computeBoundingBox(); // 计算包围盒
+
+                    const resolution = new THREE.Vector2(
+                        this.plotter.coordinateSystem.canvasWidth,
+                        this.plotter.coordinateSystem.canvasHeight
+                    );
+
+                    const lineMat = new LineMaterial({
+                        color: lineColor.getHex(),
+                        linewidth: lineWidth,
+                        resolution: resolution
+                    });
+
+                    const lineMesh = new Line2(lineGeometry, lineMat);
+                    lineMesh.computeLineDistances();
                     lineMesh.position.z = 0.02;
                     lineMesh.name = `trajectory_line_${index}`;
+                    // --- (结束) ---
 
                     obj.add(fillMesh);
                     obj.add(lineMesh);
@@ -3018,9 +3223,9 @@ class ObjectFactory {
             }
             // 为 Line2D 单独创建一个 case，确保它使用 THREE.Line
             case proto.visualization.Add2DObject.GeometryDataCase.LINE_2D: {
-                const geometry = new THREE.BufferGeometry();
                 const material = this.createLineMaterial(mat);
-                obj = new THREE.Line(geometry, material);
+                const geometry = new LineGeometry();
+                obj = new Line2(geometry, material);
                 break;
             }
             case proto.visualization.Add2DObject.GeometryDataCase.POLYGON:
@@ -3036,8 +3241,8 @@ class ObjectFactory {
                 if (lineColor) {
                     lineRGB.setRGB(lineColor.getR(), lineColor.getG(), lineColor.getB());
                 }
-                const lineMaterial = new THREE.LineBasicMaterial({ color: lineRGB });
-                const lineLoop = new THREE.LineLoop(new THREE.BufferGeometry(), lineMaterial);
+                const lineMaterial = this.createLineMaterial(mat);
+                const lineLoop = new Line2(new LineGeometry(), lineMaterial);
                 lineLoop.name = "shape_line"; // 命名以便更新
                 obj.add(lineLoop);
                 // console.log(`✅ 创建线框 LineLoop, 颜色:`, lineRGB);
@@ -3116,31 +3321,98 @@ class ObjectFactory {
     createLineMaterial(mat) {
         const color = mat.getColor();
         const lineStyle = mat.getLineStyle();
+        // 1. 从 plotter 获取初始分辨率
+        let resolution = new THREE.Vector2(800, 600); // 默认值
+        if (this.plotter && this.plotter.canvasContainer) {
+            const rect = this.plotter.canvasContainer.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+                resolution.set(rect.width, rect.height);
+            }
+        }
+
+        // 2. 构建 LineMaterial 参数
         const materialArgs = {
-            color: new THREE.Color(color.getR(), color.getG(), color.getB()),
-            linewidth: mat.getLineWidth() || 1 // Note: linewidth has no effect in modern THREE.js
+            color: new THREE.Color(color.getR(), color.getG(), color.getB()).getHex(),
+            linewidth: mat.getLineWidth() || 1, // 关键：现在线宽有效了！
+            resolution: resolution,
+            transparent: true,
         };
 
+        // 3. 处理虚线
         if (lineStyle === proto.visualization.Material.LineStyle.DASHED) {
+            materialArgs.dashed = true;
+            // 注意：LineMaterial的dashSize/gapSize是世界单位
             materialArgs.dashSize = 0.1;
             materialArgs.gapSize = 0.05;
-            return new THREE.LineDashedMaterial(materialArgs);
         }
-        return new THREE.LineBasicMaterial(materialArgs);
+
+        // 4. 处理透明度 (如果 line color 有 alpha)
+        if (typeof color.getA === 'function') {
+            materialArgs.opacity = color.getA();
+        } else {
+            materialArgs.opacity = 1.0;
+        }
+
+        return new LineMaterial(materialArgs);
+        // const materialArgs = {
+        //     color: new THREE.Color(color.getR(), color.getG(), color.getB()),
+        //     linewidth: mat.getLineWidth() || 1 // Note: linewidth has no effect in modern THREE.js
+        // };
+
+        // if (lineStyle === proto.visualization.Material.LineStyle.DASHED) {
+        //     materialArgs.dashSize = 0.1;
+        //     materialArgs.gapSize = 0.05;
+        //     return new THREE.LineDashedMaterial(materialArgs);
+        // }
+        // return new THREE.LineBasicMaterial(materialArgs);
     }
     packageAsUpdateCmd(addCmd) {
+        if (!addCmd || typeof addCmd.getId !== 'function' || typeof addCmd.getGeometryDataCase !== 'function') {
+            console.error("Invalid addCmd passed to packageAsUpdateCmd");
+            return null; // 返回 null 表示失败
+        }
         const updateCmd = new proto.visualization.Update2DObjectGeometry();
         const data = addCmd.getGeometryDataCase();
-        updateCmd.setId(addCmd.getId());
-        if (data === proto.visualization.Add2DObject.GeometryDataCase.POINT_2D) { updateCmd.setPoint2d(addCmd.getPoint2d()); }
-        else if (data === proto.visualization.Add2DObject.GeometryDataCase.POSE_2D) { updateCmd.setPose2d(addCmd.getPose2d()); }
-        else if (data === proto.visualization.Add2DObject.GeometryDataCase.LINE_2D) { updateCmd.setLine2d(addCmd.getLine2d()); }
-        else if (data === proto.visualization.Add2DObject.GeometryDataCase.POLYGON) { updateCmd.setPolygon(addCmd.getPolygon()); }
-        else if (data === proto.visualization.Add2DObject.GeometryDataCase.CIRCLE) { updateCmd.setCircle(addCmd.getCircle()); }
-        else if (data === proto.visualization.Add2DObject.GeometryDataCase.BOX_2D) { updateCmd.setBox2d(addCmd.getBox2d()); }
-        else if (data === proto.visualization.Add2DObject.GeometryDataCase.TRAJECTORY_2D) {
-            updateCmd.setTrajectory2d(addCmd.getTrajectory2d());
+        const objectId = addCmd.getId(); // 获取ID
+        updateCmd.setId(objectId); // 设置ID
+        let success = true; // 标记是否成功获取几何数据
+        try {
+            switch (data) {
+                case proto.visualization.Add2DObject.GeometryDataCase.POINT_2D:
+                    if (addCmd.getPoint2d()) updateCmd.setPoint2d(addCmd.getPoint2d()); else success = false;
+                    break;
+                case proto.visualization.Add2DObject.GeometryDataCase.POSE_2D:
+                    if (addCmd.getPose2d()) updateCmd.setPose2d(addCmd.getPose2d()); else success = false;
+                    break;
+                case proto.visualization.Add2DObject.GeometryDataCase.LINE_2D:
+                    if (addCmd.getLine2d()) updateCmd.setLine2d(addCmd.getLine2d()); else success = false;
+                    break;
+                case proto.visualization.Add2DObject.GeometryDataCase.POLYGON:
+                    if (addCmd.getPolygon()) updateCmd.setPolygon(addCmd.getPolygon()); else success = false;
+                    break;
+                case proto.visualization.Add2DObject.GeometryDataCase.CIRCLE:
+                    if (addCmd.getCircle()) updateCmd.setCircle(addCmd.getCircle()); else success = false;
+                    break;
+                case proto.visualization.Add2DObject.GeometryDataCase.BOX_2D:
+                    if (addCmd.getBox2d()) updateCmd.setBox2d(addCmd.getBox2d()); else success = false;
+                    break;
+                case proto.visualization.Add2DObject.GeometryDataCase.TRAJECTORY_2D:
+                    if (addCmd.getTrajectory2d()) updateCmd.setTrajectory2d(addCmd.getTrajectory2d()); else success = false;
+                    break;
+                default:
+                    console.warn(`[DEBUG ${objectId}] Unknown geometry type ${data} in packageAsUpdateCmd`);
+                    success = false; // 未知类型也算失败
+            }
+        } catch (error) {
+            console.error(`[DEBUG ${objectId}] Error accessing geometry data in packageAsUpdateCmd for type ${data}:`, error);
+            success = false;
         }
+
+        if (!success) {
+            console.error(`[DEBUG ${objectId}] Failed to get geometry data for type ${data} during packaging.`);
+            return null; // 返回 null 表示失败
+        }
+
         return updateCmd;
     }
 
