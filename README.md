@@ -174,6 +174,27 @@ sudo apt-get install python3
       * 将其修改为相对路径：`import ... from './three.module.js';`
       * 保存文件。
 
+### 步骤 2.3: 安装前端  
+
+1.  打开一个终端，进入本项目目录(`vis_stream/web_client/`)。
+
+2.  首先，为安装和卸载脚本添加执行权限：  
+
+    ```bash
+    chmod +x install.sh uninstall.sh
+    ```
+
+3.  运行安装脚本： 
+
+    ```bash
+    ./install.sh
+    ```
+
+4.  若需卸载
+    ```bash
+    ./uninstall.sh  
+    ```
+
 -----
 
 ## (三) 运行示例
@@ -188,17 +209,13 @@ sudo apt-get install python3
 
 ### 步骤 2: 启动前端Web服务器
 
-  * 打开 **第二个** 终端，进入 `web_client` 目录。
-    ```bash
-    # 确保在项目根目录的 web_client/ 目录下
-    cd web_client/
-    python3 -m http.server 8000
-    ```
+  * 点击开始菜单中<img src="web_client/icon/vis_icon.png" alt="Vis Icon" width="30px"> `vis-web-server`的应用  
 
-### 步骤 3: 在浏览器中查看
-
-  * 打开浏览器并访问: `http://localhost:8000`
-
+  * 在桌面右上角点击 <img src="web_client/icon/server_disconnect_icon.png" alt="Vis Icon" width="30px"> 在打开的菜单中选择`启动服务`，右上角图标变为 <img src="web_client/icon/server_connect_icon.png" alt="Vis Icon" width="30px">
+  * 在桌面右上角图标，在打开的菜单中选择`访问服务`
+  * 若需退出，点击右上角图标，选择`退出应用`
+### 步骤 3: 刷新并操作可视化窗口
+  * 若为连接成功，确保后端正常启动的前提下，确保前端服务以启动，刷新浏览器或者使用快捷键`Ctrl+Shift+R`
 -----
 
 ## (四) 项目开发路线图

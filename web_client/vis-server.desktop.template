@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Name=vis-web-server
+Comment=启动/停止本地 vis-web 服务器
+Type=Application
+Categories=Development;Network;
+Terminal=false
+
+# 使用占位符，安装脚本会自动替换它们
+Exec=python3 __EXEC_PATH__
+Icon=__ICON_PATH__
