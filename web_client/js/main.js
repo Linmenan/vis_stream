@@ -1739,7 +1739,7 @@ class Plotter2D extends BasePlotter {
             };
 
             // 使用新的边界进行适应（padding设为0，因为已经在计算中考虑了）
-            this.coordinateSystem.fitToData(dataBounds, this.camera, this.controls, padding);
+            this.coordinateSystem.fitToData(dataBounds, this.camera, this.controls, 0);
             this.forceImmediateRender();
 
         } catch (error) {
