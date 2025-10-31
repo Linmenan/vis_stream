@@ -4,6 +4,9 @@ import { OrbitControls } from './lib/OrbitControls.js';
 import { Line2 } from './lib/Line2.js';
 import { LineGeometry } from './lib/LineGeometry.js';
 import { LineMaterial } from './lib/LineMaterial.js';
+// --- 新增代码：设置Z轴为“上”方向 ---
+// 默认值是 (0, 1, 0)
+THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
 const proto = window.proto;
 
@@ -252,22 +255,23 @@ class BasePlotter {
             if (child.material) {
                 const materials = Array.isArray(child.material) ? child.material : [child.material];
                 materials.forEach(mat => {
+                    const state = { material: mat };
                     // 只处理有颜色属性的材质
                     if (mat.color) {
-
-                        // --- 新增逻辑: 计算高亮色 ---
+                        // --- 计算高亮色 ---
                         if (!foundFirstColor) {
                             // 使用找到的第一个材质颜色作为基准
                             this.dynamicHighlightColor = this.calculateHighlightColor(mat.color);
                             foundFirstColor = true;
                         }
-                        // --- 结束新增 ---
-
-                        this.originalMaterialState.push({
-                            material: mat,
-                            color: mat.color.clone()
-                        });
+                        state.color = mat.color.clone(); // 保存颜色
                     }
+                    // --- 保存 MeshStandardMaterial 的自发光状态 ---
+                    if (mat.isMeshStandardMaterial) {
+                        state.emissive = mat.emissive.clone();
+                        state.emissiveIntensity = mat.emissiveIntensity;
+                    }
+                    this.originalMaterialState.push(state);
                 });
             }
         });
@@ -300,7 +304,7 @@ class BasePlotter {
                     }
                     // 3D 材质特殊处理：添加自发光
                     if (this.type === '3D' && mat.isMeshStandardMaterial) {
-                        mat.emissive = this.dynamicHighlightColor;
+                        mat.emissive.set(this.dynamicHighlightColor); // <--- 使用 .set()
                         mat.emissiveIntensity = 0.5;
                     }
                 });
@@ -316,27 +320,28 @@ class BasePlotter {
 
         // 1. 恢复材质
         this.originalMaterialState.forEach(state => {
-            if (state.material && state.material.color) {
-                state.material.color.copy(state.color);
+            if (state.material) {
+                // 恢复颜色
+                if (state.color && state.material.color) {
+                    state.material.color.copy(state.color);
+                }
+                // --- 恢复自发光状态 ---
+                if (state.material.isMeshStandardMaterial) {
+                    if (state.emissive) {
+                        // 如果保存了emissive，则恢复
+                        state.material.emissive.copy(state.emissive);
+                        state.material.emissiveIntensity = state.emissiveIntensity;
+                    } else {
+                        // 如果没有保存（以防万一），则重置为黑色
+                        state.material.emissive.set(0x000000);
+                        state.material.emissiveIntensity = 0;
+                    }
+                }
             }
         });
 
-        // 2. 恢复3D材质的自发光
-        if (this.type === '3D') {
-            obj.traverse((child) => {
-                if (child.material) {
-                    const materials = Array.isArray(child.material) ? child.material : [child.material];
-                    materials.forEach(mat => {
-                        if (mat.isMeshStandardMaterial) {
-                            mat.emissive.set(0x000000);
-                            mat.emissiveIntensity = 0;
-                        }
-                    });
-                }
-            });
-        }
 
-        // 3. 恢复2D渲染顺序
+        // 2. 恢复2D渲染顺序
         if (this.type === '2D') {
             obj.renderOrder = this.originalRenderOrder;
         }
@@ -535,6 +540,8 @@ class Plotter3D extends BasePlotter {
 
         // 网格和坐标轴
         this.gridHelper = new THREE.GridHelper(20, 20);
+        this.gridHelper.rotation.x = Math.PI / 2;
+
         this.axesHelper = new THREE.AxesHelper(5);
         this.scene.add(this.gridHelper, this.axesHelper);
 
