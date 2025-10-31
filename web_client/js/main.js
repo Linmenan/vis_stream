@@ -2286,9 +2286,13 @@ class ObjectFactory {
                 const geom = cmd.getBall();
                 const geometry = new THREE.SphereGeometry(geom.getRadius(), 32, 16);
                 const color = mat.getColor();
+                const alpha = (typeof color.getA === 'function') ? color.getA() : 1.0;
                 const material = new THREE.MeshStandardMaterial({
                     color: new THREE.Color(color.getR(), color.getG(), color.getB()),
-                    roughness: 0.5
+                    roughness: 0.5,
+                    transparent: true, // 关键：始终启用透明，以便opacity生效
+                    opacity: alpha,     // 关键：设置从proto获取的透明度
+                    depthWrite: false
                 });
                 obj = new THREE.Mesh(geometry, material);
                 obj.position.set(geom.getCenter().getPosition().getX(), geom.getCenter().getPosition().getY(), geom.getCenter().getPosition().getZ());
@@ -2298,9 +2302,13 @@ class ObjectFactory {
                 const geom = cmd.getBox3d();
                 const geometry = new THREE.BoxGeometry(geom.getXLength(), geom.getYLength(), geom.getZLength());
                 const color = mat.getColor();
+                const alpha = (typeof color.getA === 'function') ? color.getA() : 1.0;
                 const material = new THREE.MeshStandardMaterial({
                     color: new THREE.Color(color.getR(), color.getG(), color.getB()),
-                    roughness: 0.5
+                    roughness: 0.5,
+                    transparent: true, // 关键：始终启用透明，以便opacity生效
+                    opacity: alpha,    // 关键：设置从proto获取的透明度
+                    depthWrite: false
                 });
                 obj = new THREE.Mesh(geometry, material);
                 this.updatePose(obj, geom.getCenter());
