@@ -2061,13 +2061,28 @@ class Plotter2D extends BasePlotter {
         let iconHtml = `<svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" class="legend-icon">`;
         switch (geomType) {
             case proto.visualization.Add2DObject.GeometryDataCase.LINE_2D:
-            case proto.visualization.Add2DObject.GeometryDataCase.TRAJECTORY_2D:
                 iconHtml += `<line x1="2" y1="10" x2="18" y2="10" 
                                   stroke="${strokeColor}" 
                                   stroke-width="${iconStrokeWidth}" 
                                   stroke-dasharray="${strokeDasharray}" />`;
                 break;
+            case proto.visualization.Add2DObject.GeometryDataCase.TRAJECTORY_2D:
+                // 1. 左侧 AABB 
+                iconHtml += `<rect x="2" y="7" width="12" height="6" 
+                                  fill="${fillColor}" 
+                                  stroke="${strokeColor}" 
+                                  stroke-width="${iconStrokeWidth}" 
+                                  stroke-dasharray="${strokeDasharray}" />`;
 
+                // 2. 右侧 OBB 
+                iconHtml += `<rect x="7" y="6" width="12" height="6" 
+                                  fill="${fillColor}" 
+                                  stroke="${strokeColor}" 
+                                  stroke-width="${iconStrokeWidth}" 
+                                  stroke-dasharray="${strokeDasharray}" 
+                                  transform="rotate(-10 10 10)" />`;
+                break;
+                break;
             case proto.visualization.Add2DObject.GeometryDataCase.POLYGON:
                 iconHtml += `<polygon points="10,2 18,8 15,18 5,18 2,8"
                                   fill="${fillColor}" 
