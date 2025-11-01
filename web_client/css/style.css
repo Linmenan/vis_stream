@@ -46,7 +46,7 @@ html {
 /* 2D窗口内部网格布局 */
 .plot-window-2d .figure-container {
     display: grid;
-    grid-template-columns: 1fr 200px;
+    grid-template-columns: 1fr 400px;
     grid-template-rows: auto 1fr auto;
     grid-template-areas:
         "title   title"
@@ -149,7 +149,7 @@ html {
 
 .plot-window-3d .content-area {
     display: grid;
-    grid-template-columns: 1fr 200px;
+    grid-template-columns: 1fr 400px;
     grid-template-rows: 1fr;
     grid-template-areas: "canvas legend";
     gap: 1em;
