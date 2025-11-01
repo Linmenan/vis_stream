@@ -1,6 +1,8 @@
 # VisStream: C++ Real-time 3D Visualization System
 
 这是一个高性能、跨平台的科学可视化系统。它采用解耦的客户端-服务器架构，允许高性能的C++后端将实时生成的3D数据流式传输到任何现代浏览器中进行渲染。
+<img src="./document/2d_window.png" alt="二维窗口示例" width="600px">
+<img src="./document/3d_window.png" alt="三维窗口示例" width="600px">
 
 ## 核心技术栈
 
