@@ -319,6 +319,30 @@ class Box3D : public Observable {
   float m_x_len, m_y_len, m_z_len;
 };
 
+class Line3D : public Observable {
+ public:
+  static std::shared_ptr<Line3D> create(const std::vector<Vec3>& points = {}) {
+    return std::shared_ptr<Line3D>(new Line3D(points));
+  }
+  void set_points(const std::vector<Vec3>& points) {
+    m_points = points;
+    notify_update();
+  }
+  void add_point(Vec3 p) {
+    m_points.push_back(p);
+    notify_update();
+  }
+  void clear() {
+    m_points.clear();
+    notify_update();
+  }
+  const std::vector<Vec3>& get_points() const { return m_points; }
+
+ private:
+  Line3D(const std::vector<Vec3>& points) : m_points(points) {}
+  std::vector<Vec3> m_points;
+};
+
 // --- 新增：颜色结构 ---
 struct ColorRGBA {
   float r = 1.0f;

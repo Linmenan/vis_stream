@@ -102,6 +102,11 @@ void to_proto(const Vis::Box3D& in, visualization::Box3D* out) {
   out->set_y_length(len.y);
   out->set_z_length(len.z);
 }
+void to_proto(const Vis::Line3D& in, visualization::Line3D* out) {
+  for (const auto& pt : in.get_points()) {
+    to_proto(pt, out->add_points()->mutable_position());
+  }
+}
 
 // Helper to clone Observable objects
 std::shared_ptr<Vis::Observable> clone_to_shared(const Vis::Observable& obj) {
@@ -127,6 +132,8 @@ std::shared_ptr<Vis::Observable> clone_to_shared(const Vis::Observable& obj) {
     return std::make_shared<Vis::Ball>(*p);
   } else if (auto p = dynamic_cast<const Vis::Box3D*>(&obj)) {
     return std::make_shared<Vis::Box3D>(*p);
+  } else if (auto p = dynamic_cast<const Vis::Line3D*>(&obj)) {
+    return std::make_shared<Vis::Line3D>(*p);
   }
   return nullptr;
 }
@@ -973,6 +980,8 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       to_proto(*p, cmd->mutable_ball());
     } else if (auto p = std::dynamic_pointer_cast<Vis::Box3D>(obj)) {
       to_proto(*p, cmd->mutable_box_3d());
+    } else if (auto p = std::dynamic_pointer_cast<Vis::Line3D>(obj)) {
+      to_proto(*p, cmd->mutable_line_3d());
     }
     // 添加对2D图元的支持（在3D窗口中显示）
     else if (auto p = std::dynamic_pointer_cast<Vis::Point2D>(obj)) {
@@ -1023,6 +1032,8 @@ class VisualizationServer::ServerImpl : public Vis::IObserver {
       to_proto(*p, cmd->mutable_ball());
     } else if (auto p = std::dynamic_pointer_cast<Vis::Box3D>(obj)) {
       to_proto(*p, cmd->mutable_box_3d());
+    } else if (auto p = std::dynamic_pointer_cast<Vis::Line3D>(obj)) {
+      to_proto(*p, cmd->mutable_line_3d());
     }
     // 添加对2D图元的支持（在3D窗口中更新）
     else if (auto p = std::dynamic_pointer_cast<Vis::Point2D>(obj)) {

@@ -2321,6 +2321,30 @@ class ObjectFactory {
                 this.updatePose(obj, geom.getCenter());
                 break;
             }
+            case proto.visualization.Add3DObject.GeometryDataCase.LINE_3D: {
+                const geom = cmd.getLine3d();
+                const points = geom.getPointsList().map(p => {
+                    const pos = p.getPosition(); // proto.visualization.Vec3
+                    return new THREE.Vector3(pos.getX(), pos.getY(), pos.getZ());
+                });
+
+                // 复用 createLineMaterial 辅助函数
+                const material = this.createLineMaterial(mat);
+
+                // 使用 LineGeometry
+                const positions = [];
+                points.forEach(p => positions.push(p.x, p.y, p.z));
+                const geometry = new LineGeometry();
+                geometry.setPositions(positions);
+
+                // 创建 Line2 对象
+                obj = new Line2(geometry, material);
+                obj.computeLineDistances(); // 支持虚线
+
+                // console.log(`🚀 创建3D线 (Line3D)，点数: ${points.length}`);
+                break;
+            }
+
             // 添加对2D图元的特殊处理
             case proto.visualization.Add3DObject.GeometryDataCase.POINT_2D: {
                 const geom = cmd.getPoint2d();

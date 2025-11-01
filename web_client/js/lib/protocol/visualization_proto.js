@@ -21,6 +21,7 @@ goog.provide('proto.visualization.CreateWindow');
 goog.provide('proto.visualization.DeleteObject');
 goog.provide('proto.visualization.DeleteWindow');
 goog.provide('proto.visualization.Line2D');
+goog.provide('proto.visualization.Line3D');
 goog.provide('proto.visualization.Material');
 goog.provide('proto.visualization.Material.LineStyle');
 goog.provide('proto.visualization.Material.PointShape');
@@ -3103,6 +3104,174 @@ proto.visualization.Box3D.prototype.setZLength = function(value) {
  * @extends {jspb.Message}
  * @constructor
  */
+proto.visualization.Line3D = function(opt_data) {
+  jspb.Message.initialize(this, opt_data, 0, -1, proto.visualization.Line3D.repeatedFields_, null);
+};
+goog.inherits(proto.visualization.Line3D, jspb.Message);
+if (goog.DEBUG && !COMPILED) {
+  proto.visualization.Line3D.displayName = 'proto.visualization.Line3D';
+}
+/**
+ * List of repeated fields within this message type.
+ * @private {!Array<number>}
+ * @const
+ */
+proto.visualization.Line3D.repeatedFields_ = [1];
+
+
+
+if (jspb.Message.GENERATE_TO_OBJECT) {
+/**
+ * Creates an object representation of this proto suitable for use in Soy templates.
+ * Field names that are reserved in JavaScript and will be renamed to pb_name.
+ * To access a reserved field use, foo.pb_<name>, eg, foo.pb_default.
+ * For the list of reserved names please see:
+ *     com.google.apps.jspb.JsClassTemplate.JS_RESERVED_WORDS.
+ * @param {boolean=} opt_includeInstance Whether to include the JSPB instance
+ *     for transitional soy proto support: http://goto/soy-param-migration
+ * @return {!Object}
+ */
+proto.visualization.Line3D.prototype.toObject = function(opt_includeInstance) {
+  return proto.visualization.Line3D.toObject(opt_includeInstance, this);
+};
+
+
+/**
+ * Static version of the {@see toObject} method.
+ * @param {boolean|undefined} includeInstance Whether to include the JSPB
+ *     instance for transitional soy proto support:
+ *     http://goto/soy-param-migration
+ * @param {!proto.visualization.Line3D} msg The msg instance to transform.
+ * @return {!Object}
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.visualization.Line3D.toObject = function(includeInstance, msg) {
+  var f, obj = {
+    pointsList: jspb.Message.toObjectList(msg.getPointsList(),
+    proto.visualization.Point3D.toObject, includeInstance)
+  };
+
+  if (includeInstance) {
+    obj.$jspbMessageInstance = msg;
+  }
+  return obj;
+};
+}
+
+
+/**
+ * Deserializes binary data (in protobuf wire format).
+ * @param {jspb.ByteSource} bytes The bytes to deserialize.
+ * @return {!proto.visualization.Line3D}
+ */
+proto.visualization.Line3D.deserializeBinary = function(bytes) {
+  var reader = new jspb.BinaryReader(bytes);
+  var msg = new proto.visualization.Line3D;
+  return proto.visualization.Line3D.deserializeBinaryFromReader(msg, reader);
+};
+
+
+/**
+ * Deserializes binary data (in protobuf wire format) from the
+ * given reader into the given message object.
+ * @param {!proto.visualization.Line3D} msg The message object to deserialize into.
+ * @param {!jspb.BinaryReader} reader The BinaryReader to use.
+ * @return {!proto.visualization.Line3D}
+ */
+proto.visualization.Line3D.deserializeBinaryFromReader = function(msg, reader) {
+  while (reader.nextField()) {
+    if (reader.isEndGroup()) {
+      break;
+    }
+    var field = reader.getFieldNumber();
+    switch (field) {
+    case 1:
+      var value = new proto.visualization.Point3D;
+      reader.readMessage(value,proto.visualization.Point3D.deserializeBinaryFromReader);
+      msg.addPoints(value);
+      break;
+    default:
+      reader.skipField();
+      break;
+    }
+  }
+  return msg;
+};
+
+
+/**
+ * Serializes the message to binary data (in protobuf wire format).
+ * @return {!Uint8Array}
+ */
+proto.visualization.Line3D.prototype.serializeBinary = function() {
+  var writer = new jspb.BinaryWriter();
+  proto.visualization.Line3D.serializeBinaryToWriter(this, writer);
+  return writer.getResultBuffer();
+};
+
+
+/**
+ * Serializes the given message to binary data (in protobuf wire
+ * format), writing to the given BinaryWriter.
+ * @param {!proto.visualization.Line3D} message
+ * @param {!jspb.BinaryWriter} writer
+ * @suppress {unusedLocalVariables} f is only used for nested messages
+ */
+proto.visualization.Line3D.serializeBinaryToWriter = function(message, writer) {
+  var f = undefined;
+  f = message.getPointsList();
+  if (f.length > 0) {
+    writer.writeRepeatedMessage(
+      1,
+      f,
+      proto.visualization.Point3D.serializeBinaryToWriter
+    );
+  }
+};
+
+
+/**
+ * repeated Point3D points = 1;
+ * @return {!Array<!proto.visualization.Point3D>}
+ */
+proto.visualization.Line3D.prototype.getPointsList = function() {
+  return /** @type{!Array<!proto.visualization.Point3D>} */ (
+    jspb.Message.getRepeatedWrapperField(this, proto.visualization.Point3D, 1));
+};
+
+
+/** @param {!Array<!proto.visualization.Point3D>} value */
+proto.visualization.Line3D.prototype.setPointsList = function(value) {
+  jspb.Message.setRepeatedWrapperField(this, 1, value);
+};
+
+
+/**
+ * @param {!proto.visualization.Point3D=} opt_value
+ * @param {number=} opt_index
+ * @return {!proto.visualization.Point3D}
+ */
+proto.visualization.Line3D.prototype.addPoints = function(opt_value, opt_index) {
+  return jspb.Message.addToRepeatedWrapperField(this, 1, opt_value, proto.visualization.Point3D, opt_index);
+};
+
+
+proto.visualization.Line3D.prototype.clearPointsList = function() {
+  this.setPointsList([]);
+};
+
+
+
+/**
+ * Generated by JsPbCodeGenerator.
+ * @param {Array=} opt_data Optional initial data array, typically from a
+ * server response, or constructed directly in Javascript. The array is used
+ * in place and becomes part of the constructed object. It is not cloned.
+ * If no data is provided, the constructed object will be empty, but still
+ * valid.
+ * @extends {jspb.Message}
+ * @constructor
+ */
 proto.visualization.Material = function(opt_data) {
   jspb.Message.initialize(this, opt_data, 0, -1, null, null);
 };
@@ -4058,7 +4227,7 @@ if (goog.DEBUG && !COMPILED) {
  * @private {!Array<!Array<number>>}
  * @const
  */
-proto.visualization.Add3DObject.oneofGroups_ = [[3,4,5,6,7,8,9,10,11,12,13]];
+proto.visualization.Add3DObject.oneofGroups_ = [[3,4,5,6,7,8,9,10,11,12,13,14]];
 
 /**
  * @enum {number}
@@ -4075,7 +4244,8 @@ proto.visualization.Add3DObject.GeometryDataCase = {
   POINT_3D: 10,
   POSE_3D: 11,
   BALL: 12,
-  BOX_3D: 13
+  BOX_3D: 13,
+  LINE_3D: 14
 };
 
 /**
@@ -4126,7 +4296,8 @@ proto.visualization.Add3DObject.toObject = function(includeInstance, msg) {
     point3d: (f = msg.getPoint3d()) && proto.visualization.Point3D.toObject(includeInstance, f),
     pose3d: (f = msg.getPose3d()) && proto.visualization.Pose3D.toObject(includeInstance, f),
     ball: (f = msg.getBall()) && proto.visualization.Ball.toObject(includeInstance, f),
-    box3d: (f = msg.getBox3d()) && proto.visualization.Box3D.toObject(includeInstance, f)
+    box3d: (f = msg.getBox3d()) && proto.visualization.Box3D.toObject(includeInstance, f),
+    line3d: (f = msg.getLine3d()) && proto.visualization.Line3D.toObject(includeInstance, f)
   };
 
   if (includeInstance) {
@@ -4226,6 +4397,11 @@ proto.visualization.Add3DObject.deserializeBinaryFromReader = function(msg, read
       var value = new proto.visualization.Box3D;
       reader.readMessage(value,proto.visualization.Box3D.deserializeBinaryFromReader);
       msg.setBox3d(value);
+      break;
+    case 14:
+      var value = new proto.visualization.Line3D;
+      reader.readMessage(value,proto.visualization.Line3D.deserializeBinaryFromReader);
+      msg.setLine3d(value);
       break;
     default:
       reader.skipField();
@@ -4357,6 +4533,14 @@ proto.visualization.Add3DObject.serializeBinaryToWriter = function(message, writ
       13,
       f,
       proto.visualization.Box3D.serializeBinaryToWriter
+    );
+  }
+  f = message.getLine3d();
+  if (f != null) {
+    writer.writeMessage(
+      14,
+      f,
+      proto.visualization.Line3D.serializeBinaryToWriter
     );
   }
 };
@@ -4734,6 +4918,36 @@ proto.visualization.Add3DObject.prototype.clearBox3d = function() {
  */
 proto.visualization.Add3DObject.prototype.hasBox3d = function() {
   return jspb.Message.getField(this, 13) != null;
+};
+
+
+/**
+ * optional Line3D line_3d = 14;
+ * @return {?proto.visualization.Line3D}
+ */
+proto.visualization.Add3DObject.prototype.getLine3d = function() {
+  return /** @type{?proto.visualization.Line3D} */ (
+    jspb.Message.getWrapperField(this, proto.visualization.Line3D, 14));
+};
+
+
+/** @param {?proto.visualization.Line3D|undefined} value */
+proto.visualization.Add3DObject.prototype.setLine3d = function(value) {
+  jspb.Message.setOneofWrapperField(this, 14, proto.visualization.Add3DObject.oneofGroups_[0], value);
+};
+
+
+proto.visualization.Add3DObject.prototype.clearLine3d = function() {
+  this.setLine3d(undefined);
+};
+
+
+/**
+ * Returns whether this field is set.
+ * @return {!boolean}
+ */
+proto.visualization.Add3DObject.prototype.hasLine3d = function() {
+  return jspb.Message.getField(this, 14) != null;
 };
 
 
@@ -5244,7 +5458,7 @@ if (goog.DEBUG && !COMPILED) {
  * @private {!Array<!Array<number>>}
  * @const
  */
-proto.visualization.Update3DObjectGeometry.oneofGroups_ = [[3,4,5,6,7,8,9,10,11,12,13]];
+proto.visualization.Update3DObjectGeometry.oneofGroups_ = [[3,4,5,6,7,8,9,10,11,12,13,14]];
 
 /**
  * @enum {number}
@@ -5261,7 +5475,8 @@ proto.visualization.Update3DObjectGeometry.GeometryDataCase = {
   POINT_3D: 10,
   POSE_3D: 11,
   BALL: 12,
-  BOX_3D: 13
+  BOX_3D: 13,
+  LINE_3D: 14
 };
 
 /**
@@ -5311,7 +5526,8 @@ proto.visualization.Update3DObjectGeometry.toObject = function(includeInstance, 
     point3d: (f = msg.getPoint3d()) && proto.visualization.Point3D.toObject(includeInstance, f),
     pose3d: (f = msg.getPose3d()) && proto.visualization.Pose3D.toObject(includeInstance, f),
     ball: (f = msg.getBall()) && proto.visualization.Ball.toObject(includeInstance, f),
-    box3d: (f = msg.getBox3d()) && proto.visualization.Box3D.toObject(includeInstance, f)
+    box3d: (f = msg.getBox3d()) && proto.visualization.Box3D.toObject(includeInstance, f),
+    line3d: (f = msg.getLine3d()) && proto.visualization.Line3D.toObject(includeInstance, f)
   };
 
   if (includeInstance) {
@@ -5406,6 +5622,11 @@ proto.visualization.Update3DObjectGeometry.deserializeBinaryFromReader = functio
       var value = new proto.visualization.Box3D;
       reader.readMessage(value,proto.visualization.Box3D.deserializeBinaryFromReader);
       msg.setBox3d(value);
+      break;
+    case 14:
+      var value = new proto.visualization.Line3D;
+      reader.readMessage(value,proto.visualization.Line3D.deserializeBinaryFromReader);
+      msg.setLine3d(value);
       break;
     default:
       reader.skipField();
@@ -5529,6 +5750,14 @@ proto.visualization.Update3DObjectGeometry.serializeBinaryToWriter = function(me
       13,
       f,
       proto.visualization.Box3D.serializeBinaryToWriter
+    );
+  }
+  f = message.getLine3d();
+  if (f != null) {
+    writer.writeMessage(
+      14,
+      f,
+      proto.visualization.Line3D.serializeBinaryToWriter
     );
   }
 };
@@ -5876,6 +6105,36 @@ proto.visualization.Update3DObjectGeometry.prototype.clearBox3d = function() {
  */
 proto.visualization.Update3DObjectGeometry.prototype.hasBox3d = function() {
   return jspb.Message.getField(this, 13) != null;
+};
+
+
+/**
+ * optional Line3D line_3d = 14;
+ * @return {?proto.visualization.Line3D}
+ */
+proto.visualization.Update3DObjectGeometry.prototype.getLine3d = function() {
+  return /** @type{?proto.visualization.Line3D} */ (
+    jspb.Message.getWrapperField(this, proto.visualization.Line3D, 14));
+};
+
+
+/** @param {?proto.visualization.Line3D|undefined} value */
+proto.visualization.Update3DObjectGeometry.prototype.setLine3d = function(value) {
+  jspb.Message.setOneofWrapperField(this, 14, proto.visualization.Update3DObjectGeometry.oneofGroups_[0], value);
+};
+
+
+proto.visualization.Update3DObjectGeometry.prototype.clearLine3d = function() {
+  this.setLine3d(undefined);
+};
+
+
+/**
+ * Returns whether this field is set.
+ * @return {!boolean}
+ */
+proto.visualization.Update3DObjectGeometry.prototype.hasLine3d = function() {
+  return jspb.Message.getField(this, 14) != null;
 };
 
 

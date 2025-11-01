@@ -63,6 +63,7 @@ message Box3D {
   float y_length = 3;
   float z_length = 4;
 }
+message Line3D { repeated Point3D points = 1; }
 
 // --- 材质与属性 ---
 message Material {
@@ -119,6 +120,7 @@ message Add3DObject {
     Pose3D pose_3d = 11;
     Ball ball = 12;
     Box3D box_3d = 13;
+    Line3D line_3d = 14;
   }
 }
 message Update2DObjectGeometry {
@@ -147,6 +149,7 @@ message Update3DObjectGeometry {
     Pose3D pose_3d = 11;
     Ball ball = 12;
     Box3D box_3d = 13;
+    Line3D line_3d = 14;
   }
 }
 message UpdateObjectProperties {
