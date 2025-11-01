@@ -6,7 +6,7 @@ import { LineGeometry } from './lib/LineGeometry.js';
 import { LineMaterial } from './lib/LineMaterial.js';
 // --- 新增代码：设置Z轴为“上”方向 ---
 // 默认值是 (0, 1, 0)
-THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
+// THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
 const proto = window.proto;
 
@@ -523,6 +523,7 @@ class Plotter3D extends BasePlotter {
         this.scene.background = new THREE.Color(0x222222);
 
         this.camera = new THREE.PerspectiveCamera(75, this.canvasContainer.clientWidth / this.canvasContainer.clientHeight, 0.1, 1000);
+        this.camera.up.set(0, 0, 1);
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
 
         this.renderer.setSize(this.canvasContainer.clientWidth, this.canvasContainer.clientHeight);
